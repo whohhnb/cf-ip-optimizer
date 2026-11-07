@@ -71,7 +71,8 @@ jobs:
 
       - name: go test
         working-directory: backend
-        run: go test ./...
+        # -race 需要 cgo，本地 Windows 没装 gcc，交给 CI 的 ubuntu runner
+        run: go test -race ./...
 
   build:
     name: 构建 ${{ matrix.goos }}-${{ matrix.goarch }}
