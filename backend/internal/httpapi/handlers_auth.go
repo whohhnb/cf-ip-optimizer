@@ -76,7 +76,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logx.Logf(u.ID, 0, "info", "账号注册成功 · %s · IP %s · 角色 %s", u.Email, s.clientIP(r), u.Role)
-	token, _ := auth.Issue(s.cfg.Secret, u.ID, u.Email, u.Role, tokenTTL)
+	token, _ := auth.Issue(s.cfg.Secret, u.ID, u.Email, u.Role, u.TokenVersion, tokenTTL)
 	s.setCookie(w, token)
 	ok(w, map[string]any{"token": token, "user": u})
 }
@@ -109,7 +109,16 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	u, err := s.st.UserByEmail(in.Email)
-	if err != nil || !auth.CheckPassword(u.PasswordHash, in.Password) {
+	if err != nil {
+		// 账号不存在也要跑一次同等开销的哈希校验，否则响应时间会泄露
+		// 该邮箱是否注册过
+		auth.EqualizeTiming(in.Password)
+		s.noteAttempt(key)
+		logx.Consolef(logx.Warn, "登录失败 · %s · IP %s", in.Email, s.clientIP(r))
+		fail(w, http.StatusUnauthorized, "邮箱或密码错误")
+		return
+	}
+	if !auth.CheckPassword(u.PasswordHash, in.Password) {
 		s.noteAttempt(key)
 		// console only: failed logins must not leak emails across tenants
 		logx.Consolef(logx.Warn, "登录失败 · %s · IP %s", in.Email, s.clientIP(r))
@@ -117,14 +126,66 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	logx.Logf(u.ID, 0, logx.Info, "登录成功 · %s · IP %s", u.Email, s.clientIP(r))
-	token, _ := auth.Issue(s.cfg.Secret, u.ID, u.Email, u.Role, tokenTTL)
+	token, _ := auth.Issue(s.cfg.Secret, u.ID, u.Email, u.Role, u.TokenVersion, tokenTTL)
 	s.setCookie(w, token)
 	ok(w, map[string]any{"token": token, "user": u})
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// 清 Cookie 只是客户端动作，服务端必须把版本号 +1，
+	// 否则这个 token 还能继续用满 7 天
+	if claims, err := auth.Parse(s.cfg.Secret, s.token(r)); err == nil {
+		_, _ = s.st.BumpTokenVersion(claims.Sub)
+	}
 	http.SetCookie(w, &http.Cookie{Name: "pilot_token", Value: "", Path: "/", MaxAge: -1, HttpOnly: true})
 	ok(w, map[string]bool{"ok": true})
+}
+
+type passwordInput struct {
+	OldPassword string `json:"oldPassword"`
+	NewPassword string `json:"newPassword"`
+}
+
+// handleChangePassword 改密码后旧 token 全部失效，并直接下发一个新的，
+// 免得用户改完密码还要再登录一次
+func (s *Server) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
+	var in passwordInput
+	if err := decode(r, &in); err != nil {
+		fail(w, http.StatusBadRequest, "请求格式有误")
+		return
+	}
+	if !auth.CheckPassword(u.PasswordHash, in.OldPassword) {
+		logx.Consolef(logx.Warn, "修改密码失败（原密码错误）· %s · IP %s", u.Email, s.clientIP(r))
+		fail(w, http.StatusBadRequest, "原密码不正确")
+		return
+	}
+	if len(in.NewPassword) < 8 {
+		fail(w, http.StatusBadRequest, "新密码至少 8 位")
+		return
+	}
+	if in.NewPassword == in.OldPassword {
+		fail(w, http.StatusBadRequest, "新密码不能与原密码相同")
+		return
+	}
+	hash, err := auth.HashPassword(in.NewPassword)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, "密码处理失败")
+		return
+	}
+	if err := s.st.SetPassword(u.ID, hash); err != nil {
+		fail(w, http.StatusInternalServerError, "保存失败")
+		return
+	}
+	ver, err := s.st.BumpTokenVersion(u.ID)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, "保存失败")
+		return
+	}
+	token, _ := auth.Issue(s.cfg.Secret, u.ID, u.Email, u.Role, ver, tokenTTL)
+	s.setCookie(w, token)
+	logx.Logf(u.ID, 0, logx.Info, "修改密码 · %s · 其余设备已下线", u.Email)
+	ok(w, map[string]any{"token": token})
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
