@@ -2,6 +2,7 @@
   "name": "edgepilot-web",
   "private": true,
   "version": "1.1.0",
+  "license": "AGPL-3.0-or-later",
   "type": "module",
   "scripts": {
     "dev": "vite",

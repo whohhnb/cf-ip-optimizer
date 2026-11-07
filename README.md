@@ -286,4 +286,12 @@ GET    /api/overview              总览数据
 
 ## License
 
-MIT
+[GNU AGPL-3.0](LICENSE) © 2026 whohhnb
+
+本项目以 GNU Affero General Public License v3.0 授权，要点：
+
+- 自用、修改、再分发都可以，修改后的代码需同样以 AGPL-3.0 开源
+- **通过网络对外提供服务也视为分发** —— 拿它做成收费 SaaS 需要公开你的修改
+- 需要闭源商用，请联系作者获取商业授权
+
+第三方组件的许可与归属见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
