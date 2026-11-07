@@ -68,7 +68,11 @@ func main() {
 	}
 
 	go func() {
-		logx.Infof(0, 0, "EdgePilot 边缘领航 v%s · Cloudflare 优选 IP 调度", httpapi.Version)
+		ver := httpapi.Version
+		if ver != "dev" {
+			ver = "v" + ver
+		}
+		logx.Infof(0, 0, "EdgePilot 边缘领航 %s · Cloudflare 优选 IP 调度", ver)
 		logx.Infof(0, 0, "监听地址 %s · 数据目录 %s · 日志级别 %s", cfg.Addr, cfg.DataDir, cfg.LogLevel)
 		if n, _ := st.CountUsers(); n == 0 {
 			logx.Infof(0, 0, "首次启动: 请打开首页注册第一个账号（将自动成为管理员）")

@@ -159,7 +159,7 @@ make fmt
 
 前后端分离调试：`cd backend && go run .` 加 `cd web && npm run dev`，Vite 已配好 `/api` 代理
 
-**发版**：`git tag v1.2.0 && git push origin v1.2.0`，CI 跑 `go vet` 和 `go test`，交叉编译五个平台的压缩包，推 `linux/amd64` 加 `linux/arm64` 镜像到 ghcr，最后用自动生成的 release notes 发版，带 `-` 的 tag（如 `v1.2.0-rc1`）会标成预发布
+**发版**：`git tag v1.0.0 && git push origin v1.0.0`，CI 跑 `go vet` 和 `go test`，交叉编译五个平台的压缩包，推 `linux/amd64` 加 `linux/arm64` 镜像到 ghcr，最后用自动生成的 release notes 发版，带 `-` 的 tag（如 `v1.1.0-rc1`）会标成预发布
 
 ```
 backend/
