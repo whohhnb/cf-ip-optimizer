@@ -13,6 +13,7 @@ import (
 
 	"edgepilot/internal/config"
 	"edgepilot/internal/cryptox"
+	"edgepilot/internal/dnsprovider"
 	"edgepilot/internal/httpapi"
 	"edgepilot/internal/logx"
 	"edgepilot/internal/scanner"
@@ -38,6 +39,9 @@ func main() {
 	})
 	defer st.Close()
 
+	// Webhook 默认只允许公网目标，避免用户把它当 SSRF 跳板打内网
+	dnsprovider.SetAllowPrivateOutbound(st.GetSetting("allow_private_webhook", "false") == "true")
+
 	box, err := cryptox.New(cfg.Secret)
 	if err != nil {
 		logx.Fatalf("初始化加密模块失败: %v", err)
@@ -49,6 +53,8 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	svc.ApplyRuntimeSettings()
 
 	sched := scheduler.New(st, svc)
 	go sched.Run(ctx)

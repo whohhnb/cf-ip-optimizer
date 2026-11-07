@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"edgepilot/internal/dnsprovider"
 	"edgepilot/internal/logx"
 )
 
@@ -51,14 +52,16 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 var settingDefaults = map[string]string{
-	"allow_registration": "false",
-	"rolling_replace":    "true",
-	"scan_candidates":    "300",
-	"scan_concurrency":   "48",
-	"scan_timeout_ms":    "1200",
-	"scan_samples":       "3",
-	"scan_speed_top":     "12",
-	"scan_speed_bytes":   "3145728",
+	"allow_registration":    "false",
+	"allow_private_webhook": "false",
+	"rolling_replace":       "true",
+	"scan_candidates":       "300",
+	"scan_max_concurrent":   "3",
+	"scan_concurrency":      "48",
+	"scan_timeout_ms":       "1200",
+	"scan_samples":          "3",
+	"scan_speed_top":        "12",
+	"scan_speed_bytes":      "3145728",
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -76,21 +79,23 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	bounds := map[string][2]int{
-		"scan_candidates":  {20, 3000},
-		"scan_concurrency": {1, 256},
-		"scan_timeout_ms":  {200, 10000},
-		"scan_samples":     {1, 8},
-		"scan_speed_top":   {1, 60},
-		"scan_speed_bytes": {65536, 52428800},
+		"scan_candidates":     {20, 3000},
+		"scan_max_concurrent": {1, 16},
+		"scan_concurrency":    {1, 256},
+		"scan_timeout_ms":     {200, 10000},
+		"scan_samples":        {1, 8},
+		"scan_speed_top":      {1, 60},
+		"scan_speed_bytes":    {65536, 52428800},
 	}
 	changed := make([]string, 0, len(in))
 	for k, v := range in {
 		if _, known := settingDefaults[k]; !known {
-			continue
+			fail(w, http.StatusBadRequest, "未知的设置项: "+k)
+			return
 		}
 		v = strings.TrimSpace(v)
 		switch k {
-		case "allow_registration", "rolling_replace":
+		case "allow_registration", "allow_private_webhook", "rolling_replace":
 			if v != "true" && v != "false" {
 				fail(w, http.StatusBadRequest, k+" 只能是 true 或 false")
 				return
@@ -112,6 +117,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		changed = append(changed, k+"="+v)
 	}
+	// 策略改了要立刻生效，不能等重启
+	dnsprovider.SetAllowPrivateOutbound(s.st.GetSetting("allow_private_webhook", "false") == "true")
+	s.svc.ApplyRuntimeSettings()
 	u := userFrom(r)
 	logx.Infof(u.ID, 0, "更新系统设置 · %s", strings.Join(changed, ", "))
 	s.handleGetSettings(w, r)

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
 
 // Callback posts the chosen address to a user-supplied webhook. It is the
@@ -31,7 +32,12 @@ func init() {
 			{Key: "secret", Label: "鉴权 Token（可选）", Secret: true, Help: "会以 Authorization: Bearer <token> 发送"},
 		},
 	}, func(c Credentials) (Provider, error) {
-		return &Callback{url: c.Get("url"), secret: c.Get("secret"), client: httpClient()}, nil
+		// 回调地址由用户填写，走带 SSRF 防护的 transport
+		return &Callback{
+			url:    c.Get("url"),
+			secret: c.Get("secret"),
+			client: &http.Client{Timeout: 15 * time.Second, Transport: guardedTransport(10 * time.Second)},
+		}, nil
 	})
 }
 
@@ -46,6 +52,10 @@ type callbackPayload struct {
 }
 
 func (c *Callback) post(ctx context.Context, p callbackPayload) error {
+	// 连接层已经拦了内网地址，这里再挡一次是为了给出可读的错误信息
+	if err := CheckOutboundURL(ctx, c.url); err != nil {
+		return err
+	}
 	raw, err := json.Marshal(p)
 	if err != nil {
 		return err
@@ -100,5 +110,6 @@ func (c *Callback) Verify(ctx context.Context, root string) error {
 	if c.url == "" {
 		return fmt.Errorf("请填写回调地址")
 	}
-	return nil
+	// 保存凭据时就校验目标地址，别等到下发失败才发现指向内网
+	return CheckOutboundURL(ctx, c.url)
 }

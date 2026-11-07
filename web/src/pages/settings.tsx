@@ -30,7 +30,8 @@ import { useAuth } from "@/lib/auth"
 
 const numericFields: { key: string; label: string; hint: string; min: number; max: number }[] = [
   { key: "scan_candidates", label: "候选 IP 数量", hint: "每次扫描随机采样的地址数", min: 20, max: 3000 },
-  { key: "scan_concurrency", label: "并发探测数", hint: "过高可能被运营商限速", min: 1, max: 256 },
+  { key: "scan_concurrency", label: "并发探测数", hint: "单次扫描内部的并发，过高可能被运营商限速", min: 1, max: 256 },
+  { key: "scan_max_concurrent", label: "全局同时扫描数", hint: "多个域名同时到点时，超出这个数量的任务排队等待", min: 1, max: 16 },
   { key: "scan_timeout_ms", label: "探测超时 (ms)", hint: "单次 TCP 握手超时时间", min: 200, max: 10000 },
   { key: "scan_samples", label: "采样次数", hint: "每个 IP 的握手次数，用于算抖动与丢包", min: 1, max: 8 },
   { key: "scan_speed_top", label: "测速节点数", hint: "延迟排序后进入下载测速的节点数", min: 1, max: 60 },
@@ -185,6 +186,21 @@ export default function SettingsPage() {
                   checked={values.allow_registration === "true"}
                   onCheckedChange={(v) =>
                     setValues((s) => ({ ...s, allow_registration: String(Boolean(v)) }))
+                  }
+                />
+              </div>
+              <div className="flex items-center justify-between rounded-lg border p-3">
+                <div>
+                  <p className="text-sm font-medium">允许内网 Webhook</p>
+                  <p className="text-xs text-muted-foreground">
+                    默认拦截指向本机、内网和云元数据地址的回调，避免被当成 SSRF 跳板。
+                    确实要回调内网服务时再打开
+                  </p>
+                </div>
+                <Switch
+                  checked={values.allow_private_webhook === "true"}
+                  onCheckedChange={(v) =>
+                    setValues((s) => ({ ...s, allow_private_webhook: String(Boolean(v)) }))
                   }
                 />
               </div>
