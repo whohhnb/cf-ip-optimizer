@@ -62,6 +62,11 @@ var settingDefaults = map[string]string{
 	"scan_samples":          "3",
 	"scan_speed_top":        "12",
 	"scan_speed_bytes":      "3145728",
+	"scan_latency_max":      "0",
+	"scan_speed_floor":      "0",
+	"scan_speed_ok":         "0",
+	"scan_colo_allow":       "",
+	"scan_no_speed":         "false",
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, r *http.Request) {
@@ -86,6 +91,9 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		"scan_samples":        {1, 8},
 		"scan_speed_top":      {1, 60},
 		"scan_speed_bytes":    {65536, 52428800},
+		"scan_latency_max":    {0, 3000},
+		"scan_speed_floor":    {0, 1000},
+		"scan_speed_ok":       {0, 60},
 	}
 	changed := make([]string, 0, len(in))
 	for k, v := range in {
@@ -95,10 +103,27 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 		}
 		v = strings.TrimSpace(v)
 		switch k {
-		case "allow_registration", "allow_private_webhook", "rolling_replace":
+		case "allow_registration", "allow_private_webhook", "rolling_replace", "scan_no_speed":
 			if v != "true" && v != "false" {
 				fail(w, http.StatusBadRequest, k+" 只能是 true 或 false")
 				return
+			}
+		case "scan_colo_allow":
+			// 存归一化后的形式，避免 "hkg, nrt" 和 "HKG,NRT" 被当成两种配置
+			v = strings.ToUpper(strings.ReplaceAll(v, " ", ""))
+			if v != "" {
+				for _, part := range strings.Split(v, ",") {
+					if len(part) != 3 {
+						fail(w, http.StatusBadRequest, "机房代码必须是 3 位字母，如 HKG,NRT")
+						return
+					}
+					for _, c := range part {
+						if c < 'A' || c > 'Z' {
+							fail(w, http.StatusBadRequest, "机房代码只能是字母")
+							return
+						}
+					}
+				}
 			}
 		default:
 			n, err := strconv.Atoi(v)

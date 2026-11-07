@@ -146,7 +146,28 @@ func (s *Service) ScanOptions(host string) scanner.Options {
 		SpeedBytes:  settingInt(s.Store, "scan_speed_bytes", 3<<20),
 		Port:        443,
 		Host:        host,
+
+		LatencyMax:  float64(settingInt(s.Store, "scan_latency_max", 0)),
+		SpeedFloor:  float64(settingInt(s.Store, "scan_speed_floor", 0)),
+		SpeedOK:     settingInt(s.Store, "scan_speed_ok", 0),
+		ColoAllow:   splitColo(s.Store.GetSetting("scan_colo_allow", "")),
+		NoSpeedTest: s.Store.GetSetting("scan_no_speed", "false") == "true",
 	}
+}
+
+// splitColo turns "HKG, nrt ,SIN" into ["HKG","NRT","SIN"].
+func splitColo(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	out := make([]string, 0, 4)
+	for _, part := range strings.Split(raw, ",") {
+		code := strings.ToUpper(strings.TrimSpace(part))
+		if len(code) == 3 {
+			out = append(out, code)
+		}
+	}
+	return out
 }
 
 // StartScan launches a scan in the background and returns the job row at once.
@@ -157,6 +178,17 @@ func (s *Service) StartScan(ctx context.Context, d *model.Domain, trigger string
 		return nil, errors.New("该域名正在扫描中")
 	}
 	opts := s.ScanOptions(d.FullName())
+	// 上轮表现好的地址优先复测：anycast 下重新随机的边际收益极低，
+	// 而一条已验证过的路径价值高得多
+	seeds := opts.Candidates / 5
+	if seeds < 8 {
+		seeds = 8
+	}
+	if seeds > 40 {
+		seeds = 40
+	}
+	opts.Seeds = s.Store.SeedIPs(d.ID, seeds)
+
 	job, err := s.Store.CreateJob(d.ID, d.UserID, trigger, opts.Candidates)
 	if err != nil {
 		s.markRunning(d.ID, false)
@@ -190,8 +222,20 @@ func (s *Service) execute(job *model.ScanJob, d model.Domain, opts scanner.Optio
 
 	name := d.FullName()
 	started := time.Now()
-	logx.Infof(d.UserID, d.ID, "%s 扫描开始 · 触发=%s · 候选=%d · 并发=%d · 超时=%s · 采样=%d次",
-		name, triggerLabel(job.Trigger), opts.Candidates, opts.Concurrency, opts.Timeout, opts.Samples)
+	policy := "默认"
+	if opts.NoSpeedTest {
+		policy = "仅延迟"
+	} else if opts.SpeedFloor > 0 {
+		policy = fmt.Sprintf("速度≥%.0fMbps", opts.SpeedFloor)
+	}
+	if opts.LatencyMax > 0 {
+		policy += fmt.Sprintf(" · 延迟≤%.0fms", opts.LatencyMax)
+	}
+	if len(opts.ColoAllow) > 0 {
+		policy += " · 机房 " + strings.Join(opts.ColoAllow, "/")
+	}
+	logx.Infof(d.UserID, d.ID, "%s 扫描开始 · 触发=%s · 候选=%d（复用 %d）· 并发=%d · 超时=%s · 采样=%d次 · 策略 %s",
+		name, triggerLabel(job.Trigger), opts.Candidates, len(opts.Seeds), opts.Concurrency, opts.Timeout, opts.Samples, policy)
 
 	var lastWrite time.Time
 	lastStage := ""

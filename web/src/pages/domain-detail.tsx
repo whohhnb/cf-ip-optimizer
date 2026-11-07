@@ -420,6 +420,7 @@ export default function DomainDetailPage() {
                       <TableHead className="text-right">延迟</TableHead>
                       <TableHead className="hidden text-right lg:table-cell">抖动</TableHead>
                       <TableHead className="hidden text-right lg:table-cell">丢包</TableHead>
+                      <TableHead className="hidden text-right lg:table-cell">HTTP</TableHead>
                       <TableHead className="hidden text-right lg:table-cell">下载</TableHead>
                       <TableHead className="hidden lg:table-cell">机房</TableHead>
                       <TableHead className="text-right">评分</TableHead>
@@ -440,6 +441,9 @@ export default function DomainDetailPage() {
                         </TableCell>
                         <TableCell className="hidden text-right tabular-nums text-muted-foreground lg:table-cell">
                           {r.loss.toFixed(0)}%
+                        </TableCell>
+                        <TableCell className="hidden text-right tabular-nums text-muted-foreground lg:table-cell">
+                          {r.httpRtt > 0 ? r.httpRtt.toFixed(0) : "—"}
                         </TableCell>
                         <TableCell className="hidden text-right tabular-nums lg:table-cell">
                           {r.speed > 0 ? `${r.speed.toFixed(1)} Mbps` : "—"}

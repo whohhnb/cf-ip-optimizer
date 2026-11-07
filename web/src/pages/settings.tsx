@@ -36,6 +36,9 @@ const numericFields: { key: string; label: string; hint: string; min: number; ma
   { key: "scan_samples", label: "采样次数", hint: "每个 IP 的握手次数，用于算抖动与丢包", min: 1, max: 8 },
   { key: "scan_speed_top", label: "测速节点数", hint: "延迟排序后进入下载测速的节点数", min: 1, max: 60 },
   { key: "scan_speed_bytes", label: "测速字节数", hint: "下载测速的样本大小（字节）", min: 65536, max: 52428800 },
+  { key: "scan_latency_max", label: "延迟上限 (ms)", hint: "超过这个延迟的节点在下载测速前就被剔除，0 = 不限", min: 0, max: 3000 },
+  { key: "scan_speed_floor", label: "速度下限 (Mbps)", hint: "低于此速度的节点不计入达标数，0 = 不限", min: 0, max: 1000 },
+  { key: "scan_speed_ok", label: "达标即停数量", hint: "凑够这么多个达到速度下限的节点就停止测速，0 = 全部测完", min: 0, max: 60 },
 ]
 
 export default function SettingsPage() {
@@ -139,6 +142,38 @@ export default function SettingsPage() {
                   <p className="text-xs text-muted-foreground">{f.hint}</p>
                 </div>
               ))}
+
+              <div className="grid gap-2 sm:col-span-2 xl:col-span-3">
+                <Label htmlFor="scan_colo_allow">机房白名单</Label>
+                <Input
+                  id="scan_colo_allow"
+                  className="max-w-64 font-mono"
+                  placeholder="留空不限制，如 HKG,NRT,SIN"
+                  value={values.scan_colo_allow ?? ""}
+                  onChange={(e) =>
+                    setValues((s) => ({ ...s, scan_colo_allow: e.target.value }))
+                  }
+                />
+                <p className="text-xs text-muted-foreground">
+                  IATA 三字码，逗号分隔。只保留这些机房的节点；全都命中不了会直接判定为无可用节点，
+                  不会悄悄退回全量，免得你以为筛选生效了其实没有
+                </p>
+              </div>
+
+              <div className="flex items-start justify-between gap-4 rounded-lg border p-3 sm:col-span-2 xl:col-span-3">
+                <div>
+                  <p className="text-sm font-medium">跳过下载测速</p>
+                  <p className="text-xs text-muted-foreground">
+                    只按延迟与丢包排序，扫描时间缩短到几分之一。适合 SSH、游戏这类不在乎带宽的场景
+                  </p>
+                </div>
+                <Switch
+                  checked={values.scan_no_speed === "true"}
+                  onCheckedChange={(v) =>
+                    setValues((s) => ({ ...s, scan_no_speed: String(Boolean(v)) }))
+                  }
+                />
+              </div>
             </CardContent>
           </Card>
 

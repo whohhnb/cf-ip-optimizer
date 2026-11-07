@@ -104,13 +104,14 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="edgepilot-job-%d.csv"`, id))
 	w.Write([]byte{0xEF, 0xBB, 0xBF}) // BOM so Excel reads UTF-8
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"IP地址", "延迟(ms)", "抖动(ms)", "丢包(%)", "下载(Mbps)", "评分", "机房", "可用"})
+	_ = cw.Write([]string{"IP地址", "延迟(ms)", "抖动(ms)", "丢包(%)", "HTTP往返(ms)", "下载(Mbps)", "评分", "机房", "可用"})
 	for _, res := range results {
 		_ = cw.Write([]string{
 			res.IP,
 			fmt.Sprintf("%.2f", res.Latency),
 			fmt.Sprintf("%.2f", res.Jitter),
 			fmt.Sprintf("%.2f", res.Loss),
+			fmt.Sprintf("%.2f", res.HTTPRTT),
 			fmt.Sprintf("%.2f", res.Speed),
 			fmt.Sprintf("%.2f", res.Score),
 			res.Colo,

@@ -101,6 +101,8 @@ export type ScanResult = {
   latency: number
   jitter: number
   loss: number
+  /** full HTTP round trip through the edge, 0 = not measured */
+  httpRtt: number
   speed: number
   score: number
   colo: string
