@@ -38,6 +38,17 @@ func (s *Service) IsRunning(domainID int64) bool {
 	return s.running[domainID]
 }
 
+// claim 原子地把域名标记为「扫描中」，已在跑则返回 false
+func (s *Service) claim(domainID int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.running[domainID] {
+		return false
+	}
+	s.running[domainID] = true
+	return true
+}
+
 func (s *Service) markRunning(domainID int64, v bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -87,15 +98,17 @@ func (s *Service) ScanOptions(host string) scanner.Options {
 
 // StartScan launches a scan in the background and returns the job row at once.
 func (s *Service) StartScan(ctx context.Context, d *model.Domain, trigger string) (*model.ScanJob, error) {
-	if s.IsRunning(d.ID) {
+	// 先原子占位再建任务：分成「查在跑没」和「标记在跑」两步的话，
+	// 手动扫描与调度器同时触发会各起一个 goroutine 扫同一个域名
+	if !s.claim(d.ID) {
 		return nil, errors.New("该域名正在扫描中")
 	}
 	opts := s.ScanOptions(d.FullName())
 	job, err := s.Store.CreateJob(d.ID, d.UserID, trigger, opts.Candidates)
 	if err != nil {
+		s.markRunning(d.ID, false)
 		return nil, err
 	}
-	s.markRunning(d.ID, true)
 	_ = s.Store.SetDomainStatus(d.ID, "scanning", "")
 
 	go func() {
@@ -170,7 +183,7 @@ func (s *Service) execute(job *model.ScanJob, d model.Domain, opts scanner.Optio
 
 	pushed := false
 	if d.AutoPush && len(out.Results) > 0 {
-		if err := s.PushResults(context.Background(), &d, out.Results); err != nil {
+		if _, err := s.PushResults(context.Background(), &d, out.Results); err != nil {
 			logx.Warnf(d.UserID, d.ID, "%s 自动下发失败 · %s", name, err.Error())
 			_ = s.Store.SetDomainStatus(d.ID, "error", "下发失败: "+err.Error())
 		} else {
@@ -214,27 +227,27 @@ func coloOf(results []model.ScanResult) string {
 }
 
 // PushResults writes the best N addresses to DNS for a domain.
-func (s *Service) PushResults(ctx context.Context, d *model.Domain, results []model.ScanResult) error {
+func (s *Service) PushResults(ctx context.Context, d *model.Domain, results []model.ScanResult) (int, error) {
 	if len(results) == 0 {
-		return errors.New("没有可下发的优选 IP")
+		return 0, errors.New("没有可下发的优选 IP")
 	}
 	acct, encKey, err := s.Store.AccountSecret(d.AccountID)
 	if err != nil {
-		return fmt.Errorf("读取 DNS 凭据失败: %w", err)
+		return 0, fmt.Errorf("读取 DNS 凭据失败: %w", err)
 	}
 	plain, err := s.Box.Open(encKey)
 	if err != nil {
-		return fmt.Errorf("解密 DNS 凭据失败: %w", err)
+		return 0, fmt.Errorf("解密 DNS 凭据失败: %w", err)
 	}
 	cred := dnsprovider.Credentials{}
 	if plain != "" {
 		if err := json.Unmarshal([]byte(plain), &cred); err != nil {
-			return fmt.Errorf("解析 DNS 凭据失败: %w", err)
+			return 0, fmt.Errorf("解析 DNS 凭据失败: %w", err)
 		}
 	}
 	provider, err := dnsprovider.New(acct.Provider, cred)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	desc, _ := dnsprovider.DescriptorOf(acct.Provider)
 
@@ -264,7 +277,7 @@ func (s *Service) PushResults(ctx context.Context, d *model.Domain, results []mo
 
 	managed, err := s.Store.ListManaged(d.ID)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	res, err := dnsprovider.Sync(ctx, provider, dnsprovider.SyncOptions{
 		RootDomain: d.RootDomain,
@@ -278,7 +291,7 @@ func (s *Service) PushResults(ctx context.Context, d *model.Domain, results []mo
 		Remark:     "edgepilot",
 	})
 	if err != nil {
-		return err
+		return 0, err
 	}
 	for _, m := range res.Managed {
 		_ = s.Store.UpsertManaged(d.ID, m.Slot, m.RecordID, m.Value)
@@ -291,7 +304,7 @@ func (s *Service) PushResults(ctx context.Context, d *model.Domain, results []mo
 		logx.Infof(d.UserID, d.ID, "%s 下发跳过 · 解析已是最新（%s）",
 			d.FullName(), strings.Join(desired, ", "))
 	}
-	return nil
+	return len(desired), nil
 }
 
 // PushLatest re-pushes the newest completed scan without scanning again.
@@ -304,10 +317,7 @@ func (s *Service) PushLatest(ctx context.Context, d *model.Domain) (int, error) 
 	if err != nil {
 		return 0, err
 	}
-	if err := s.PushResults(ctx, d, results); err != nil {
-		return 0, err
-	}
-	return len(results), nil
+	return s.PushResults(ctx, d, results)
 }
 
 // TestAccount validates DNSPod credentials (optionally against a root domain).
