@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -68,7 +69,8 @@ func main() {
 	}
 
 	go func() {
-		ver := httpapi.Version
+		// 注入的可能是 1.0.0 也可能是 v1.0.0（make 传的是 git describe 结果），统一成一种
+		ver := strings.TrimPrefix(httpapi.Version, "v")
 		if ver != "dev" {
 			ver = "v" + ver
 		}

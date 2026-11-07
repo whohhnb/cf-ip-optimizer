@@ -1,7 +1,7 @@
 # EdgePilot 构建入口
 # 版本号取当前 git tag；没有 tag 时退化为短 SHA，可 make VERSION=1.2.3 覆盖
 BINARY  := edgepilot
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+VERSION ?= $(shell v=$$(git describe --tags --always --dirty 2>/dev/null); echo $${v:-dev} | sed 's/^v//')
 LDFLAGS := -s -w -X edgepilot/internal/httpapi.Version=$(VERSION)
 
 .PHONY: all build web test fmt docker clean
