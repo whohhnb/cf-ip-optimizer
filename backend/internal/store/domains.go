@@ -339,7 +339,8 @@ func (s *Store) Overview(userID int64) (*model.Overview, error) {
 		return nil, err
 	}
 	row = s.db.QueryRow(`SELECT AVG(j.top_latency), MIN(j.top_latency), MAX(j.started_at)
-		FROM scan_jobs j WHERE j.user_id=? AND j.status='done' AND j.started_at > ?`, userID, now()-7*86400)
+		FROM scan_jobs j
+		WHERE j.user_id=? AND j.status='done' AND j.top_latency > 0 AND j.started_at > ?`, userID, now()-7*86400)
 	_ = row.Scan(&avgLat, &bestLat, new(sql.NullInt64))
 	if avgLat.Valid {
 		o.AvgLatency = avgLat.Float64
@@ -374,7 +375,8 @@ func (s *Store) LatencyTrend(userID, domainID int64, limit int) ([]TrendPoint, e
 	if limit <= 0 {
 		limit = 40
 	}
-	q := `SELECT started_at, top_latency, top_speed FROM scan_jobs WHERE user_id=? AND status='done'`
+	q := `SELECT started_at, top_latency, top_speed FROM scan_jobs
+		WHERE user_id=? AND status='done' AND top_latency > 0`
 	args := []any{userID}
 	if domainID > 0 {
 		q += ` AND domain_id=?`
