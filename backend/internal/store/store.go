@@ -212,6 +212,20 @@ func (s *Store) CreateUser(email, hash, role string) (*model.User, error) {
 	return &model.User{ID: id, Email: email, PasswordHash: hash, Role: role, CreatedAt: time.Unix(nowT, 0)}, nil
 }
 
+// CreateUserAutoRole 在一条 INSERT 里决定角色：库里没有任何用户时成为管理员。
+// 分两步「先数再插」的话，并发注册会让两个请求同时看到 0 个用户，双双拿到管理员。
+func (s *Store) CreateUserAutoRole(email, hash string) (*model.User, error) {
+	nowT := now()
+	res, err := s.db.Exec(`INSERT INTO users(email,password_hash,role,created_at)
+		VALUES(?,?, CASE WHEN (SELECT COUNT(*) FROM users)=0 THEN 'admin' ELSE 'user' END, ?)`,
+		email, hash, nowT)
+	if err != nil {
+		return nil, err
+	}
+	id, _ := res.LastInsertId()
+	return s.UserByID(id)
+}
+
 func (s *Store) UserByEmail(email string) (*model.User, error) {
 	row := s.db.QueryRow(`SELECT id,email,password_hash,role,created_at FROM users WHERE email=?`, email)
 	var u model.User

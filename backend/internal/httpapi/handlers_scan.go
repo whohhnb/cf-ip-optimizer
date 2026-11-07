@@ -122,7 +122,23 @@ func (s *Server) handleExportCSV(w http.ResponseWriter, r *http.Request) {
 
 // handleStream streams scan progress over SSE.
 func (s *Server) handleStream(w http.ResponseWriter, r *http.Request) {
-	domainID, _ := strconv.ParseInt(r.URL.Query().Get("domainId"), 10, 64)
+	domainID, err := strconv.ParseInt(r.URL.Query().Get("domainId"), 10, 64)
+	if err != nil || domainID <= 0 {
+		fail(w, http.StatusBadRequest, "参数有误")
+		return
+	}
+	// 订阅前必须确认域名属于当前用户，否则任何登录用户都能收到别人
+	// 扫描进度里携带的 IP 与阶段信息
+	if u := userFrom(r); u != nil {
+		if _, err := s.st.DomainByID(domainID, u.ID); err != nil {
+			fail(w, http.StatusNotFound, "域名不存在")
+			return
+		}
+	} else {
+		fail(w, http.StatusUnauthorized, "登录已过期，请重新登录")
+		return
+	}
+
 	flusher, canFlush := w.(http.Flusher)
 	if !canFlush {
 		fail(w, http.StatusInternalServerError, "不支持流式响应")

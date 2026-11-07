@@ -108,25 +108,49 @@ export default function DomainDetailPage() {
 
   useEffect(() => {
     if (!domainId) return
-    const token = getToken()
-    const qs = new URLSearchParams({ domainId: String(domainId) })
-    if (token) qs.set("token", token)
-    const es = new EventSource(`/api/stream?${qs.toString()}`)
-    es.onmessage = (evt) => {
-      try {
-        const data = JSON.parse(evt.data) as ScanEvent
-        setProgress(data)
-        if (data.type === "done" || data.type === "error") {
-          setScanning(false)
-          if (data.type === "error") toast.error(data.error ?? "扫描失败")
-          else toast.success(data.msg ?? "扫描完成")
-          void load()
+
+    // 优先靠登录时下发的 HttpOnly Cookie 认证，避免 token 出现在 URL 里
+    // 被反代访问日志记下来；Cookie 不可用时才降级到 query 参数重试一次
+    let es: EventSource | null = null
+    let usedTokenFallback = false
+
+    const connect = (withToken: boolean) => {
+      const qs = new URLSearchParams({ domainId: String(domainId) })
+      if (withToken) {
+        const token = getToken()
+        if (token) qs.set("token", token)
+      }
+      es = new EventSource(`/api/stream?${qs.toString()}`)
+
+      es.onmessage = (evt) => {
+        try {
+          const data = JSON.parse(evt.data) as ScanEvent
+          setProgress(data)
+          if (data.type === "done" || data.type === "error") {
+            setScanning(false)
+            if (data.type === "error") toast.error(data.error ?? "扫描失败")
+            else toast.success(data.msg ?? "扫描完成")
+            void load()
+          }
+        } catch {
+          /* 忽略无法解析的帧 */
         }
-      } catch {
-        /* ignore malformed frames */
+      }
+
+      es.onerror = () => {
+        if (!usedTokenFallback) {
+          usedTokenFallback = true
+          es?.close()
+          connect(true)
+          return
+        }
+        // 两次都失败（多半是域名不属于当前用户或登录已过期），别再重连
+        es?.close()
       }
     }
-    return () => es.close()
+
+    connect(false)
+    return () => es?.close()
   }, [domainId, load])
 
   async function startScan() {

@@ -70,17 +70,12 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, "密码处理失败")
 		return
 	}
-	n, _ := s.st.CountUsers()
-	role := "user"
-	if n == 0 {
-		role = "admin"
-	}
-	u, err := s.st.CreateUser(in.Email, hash, role)
+	u, err := s.st.CreateUserAutoRole(in.Email, hash)
 	if err != nil {
 		fail(w, http.StatusInternalServerError, "创建账号失败")
 		return
 	}
-	logx.Logf(u.ID, 0, "info", "账号注册成功 · %s · IP %s · 角色 %s", u.Email, clientIP(r), u.Role)
+	logx.Logf(u.ID, 0, "info", "账号注册成功 · %s · IP %s · 角色 %s", u.Email, s.clientIP(r), u.Role)
 	token, _ := auth.Issue(s.cfg.Secret, u.ID, u.Email, u.Role, tokenTTL)
 	s.setCookie(w, token)
 	ok(w, map[string]any{"token": token, "user": u})
@@ -106,9 +101,9 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	in.Email = strings.ToLower(strings.TrimSpace(in.Email))
 
-	key := in.Email + "|" + clientIP(r)
+	key := in.Email + "|" + s.clientIP(r)
 	if !s.allowAttempt(key) {
-		logx.Consolef(logx.Warn, "登录被限流 · %s · IP %s", in.Email, clientIP(r))
+		logx.Consolef(logx.Warn, "登录被限流 · %s · IP %s", in.Email, s.clientIP(r))
 		fail(w, http.StatusTooManyRequests, "尝试过于频繁，请稍后再试")
 		return
 	}
@@ -117,11 +112,11 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	if err != nil || !auth.CheckPassword(u.PasswordHash, in.Password) {
 		s.noteAttempt(key)
 		// console only: failed logins must not leak emails across tenants
-		logx.Consolef(logx.Warn, "登录失败 · %s · IP %s", in.Email, clientIP(r))
+		logx.Consolef(logx.Warn, "登录失败 · %s · IP %s", in.Email, s.clientIP(r))
 		fail(w, http.StatusUnauthorized, "邮箱或密码错误")
 		return
 	}
-	logx.Logf(u.ID, 0, logx.Info, "登录成功 · %s · IP %s", u.Email, clientIP(r))
+	logx.Logf(u.ID, 0, logx.Info, "登录成功 · %s · IP %s", u.Email, s.clientIP(r))
 	token, _ := auth.Issue(s.cfg.Secret, u.ID, u.Email, u.Role, tokenTTL)
 	s.setCookie(w, token)
 	ok(w, map[string]any{"token": token, "user": u})
@@ -137,9 +132,13 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{"user": u, "allowRegistration": s.registrationAllowed()})
 }
 
-func clientIP(r *http.Request) string {
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return strings.TrimSpace(strings.Split(xff, ",")[0])
+// clientIP 只有显式开启 PILOT_TRUST_PROXY 时才采信 X-Forwarded-For。
+// 否则攻击者随手伪造该头即可绕开登录限流、并污染审计日志。
+func (s *Server) clientIP(r *http.Request) string {
+	if s.cfg.TrustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			return strings.TrimSpace(strings.Split(xff, ",")[0])
+		}
 	}
 	host := r.RemoteAddr
 	if i := strings.LastIndex(host, ":"); i > 0 {
@@ -168,8 +167,15 @@ func (s *Server) noteAttempt(key string) {
 	s.limiterMu.Lock()
 	defer s.limiterMu.Unlock()
 	s.attempts[key] = append(s.attempts[key], time.Now())
+	// 表满时只清理已过期的键，不能整体清空：否则攻击者批量制造 key
+	// 就能把所有人的失败计数一起抹掉，限流形同虚设
 	if len(s.attempts) > 5000 {
-		s.attempts = make(map[string][]time.Time)
+		cutoff := time.Now().Add(-10 * time.Minute)
+		for k, v := range s.attempts {
+			if len(v) == 0 || v[len(v)-1].Before(cutoff) {
+				delete(s.attempts, k)
+			}
+		}
 	}
 }
 

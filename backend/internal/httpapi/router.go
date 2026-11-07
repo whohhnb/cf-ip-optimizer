@@ -171,7 +171,7 @@ func (s *Server) logger(next http.Handler) http.Handler {
 			status = http.StatusOK
 		}
 		line := "%s %s → %d · %s · %s"
-		args := []any{r.Method, path, status, dur, clientIP(r)}
+		args := []any{r.Method, path, status, dur, s.clientIP(r)}
 		switch {
 		case status >= 500:
 			logx.Errorf(0, 0, line, args...)
