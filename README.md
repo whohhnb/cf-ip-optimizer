@@ -102,6 +102,12 @@ Webhook 模式更极端：只接收推送、不支持回读。界面上会直接
 
 **Docker**（推荐）：上面的三分钟版本。Caddy 自动申请证书，注意 SSE 需要关闭缓冲，`deploy/Caddyfile` 里已经配好 `flush_interval -1`。
 
+懒得本地构建的话，CI 会把多架构镜像推到 `ghcr.io/whohhnb/cf-ip-optimizer`：
+
+```bash
+docker pull ghcr.io/whohhnb/cf-ip-optimizer:latest
+```
+
 **二进制**：下载 Release 包，或者自己编：
 
 ```bash
@@ -152,6 +158,8 @@ make fmt
 ```
 
 前后端分离调试：`cd backend && go run .` 加 `cd web && npm run dev`（Vite 已配好 `/api` 代理）。
+
+**发版**：`git tag v1.2.0 && git push origin v1.2.0`。CI 会跑 `go vet` / `go test`，交叉编译五个平台的压缩包，推 `linux/amd64` + `linux/arm64` 镜像到 ghcr，最后用自动生成的 release notes 发版。带 `-` 的 tag（如 `v1.2.0-rc1`）会标成预发布。
 
 ```
 backend/
