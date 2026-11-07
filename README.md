@@ -108,14 +108,35 @@ Cloudflare 的 anycast 网络里，**任何一个边缘 IP 都能到达你的站
 
 ## 快速开始
 
-### 方式一：Docker Compose（推荐）
+### 方式一：预编译包
+
+打 tag 后 CI 会自动构建五个平台（linux / darwin 的 amd64+arm64、windows amd64），
+每个压缩包内含二进制、README、LICENSE 与部署模板，另附 `checksums.txt` 供校验：
 
 ```bash
-git clone <repo> cf-ip-optimizer && cd cf-ip-optimizer
+# 以 v1.2.0 · linux amd64 为例
+curl -LO https://github.com/whohhnb/cf-ip-optimizer/releases/download/v1.2.0/edgepilot-v1.2.0-linux-amd64.tar.gz
+sha256sum -c checksums.txt --ignore-missing
+mkdir -p /opt/edgepilot && tar -xzf edgepilot-v1.2.0-linux-amd64.tar.gz -C /opt/edgepilot
+
+PILOT_ADDR=:8080 PILOT_DATA_DIR=/opt/edgepilot/data \
+  PILOT_SECRET=$(openssl rand -hex 32) /opt/edgepilot/edgepilot
+```
+
+### 方式二：Docker Compose（推荐）
+
+```bash
+git clone https://github.com/whohhnb/cf-ip-optimizer && cd cf-ip-optimizer
 cp .env.example .env
 # 编辑 .env：PILOT_DOMAIN / ACME_EMAIL / PILOT_SECRET（openssl rand -hex 32）
 
 docker compose up -d --build
+```
+
+也可以直接用 CI 推送的镜像，省掉本地构建：
+
+```bash
+docker pull ghcr.io/whohhnb/cf-ip-optimizer:latest
 ```
 
 Caddy 会自动申请 Let's Encrypt 证书并反代，`https://你的面板域名` 打开即可。首次访问会引导你注册管理员账号。
@@ -124,22 +145,29 @@ Caddy 会自动申请 Let's Encrypt 证书并反代，`https://你的面板域�
 
 > `PILOT_SECRET` 一旦确定就不要再改：它同时用于签发登录令牌和加密 DNS 凭据，变更后旧凭据需要重新录入。
 
-### 方式二：单二进制
+### 方式三：源码构建
+
+二进制内嵌前端，所以必须**先构建前端再编译后端**（`go:embed` 依赖 `backend/web/dist` 存在）：
 
 ```bash
-# 构建（需要 Go 1.27+ 与 Node 20+）
+# 需要 Go 1.27+ 与 Node 20+
 cd web && npm ci && npm run build && cd ..
-cd backend && CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o ../dist/edgepilot .
+cd backend && CGO_ENABLED=0 go build -trimpath \
+  -ldflags "-s -w -X edgepilot/internal/httpapi.Version=$(git describe --tags --always)" \
+  -o ../dist/edgepilot .
 
-# 运行
-PILOT_ADDR=:8080 PILOT_DATA_DIR=/opt/edgepilot/data PILOT_SECRET=$(openssl rand -hex 32) ./dist/edgepilot
+./dist/edgepilot
 ```
 
-二进制内嵌前端，不需要额外的 Nginx/静态目录。反向代理注意给 SSE 关闭缓冲（Nginx：`proxy_buffering off;`；Caddy：`flush_interval -1`）。
+装了 make 的话，仓库根目录的 `Makefile` 把这两步串起来了：`make build`（等价于上面两条），
+另有 `make test` / `make fmt` / `make docker`。
+
+二进制自带前端与静态资源，不需要额外的 Nginx/静态目录。反向代理注意给 SSE 关闭缓冲
+（Nginx：`proxy_buffering off;`；Caddy：`flush_interval -1`）。
 
 systemd 用户可直接使用 [`deploy/edgepilot.service`](deploy/edgepilot.service)。
 
-### 方式三：本地开发
+### 方式四：本地开发
 
 ```bash
 # 终端 1：后端
@@ -148,6 +176,23 @@ cd backend && go run .            # :8080
 # 终端 2：前端（Vite 已配置 /api 代理到 :8080）
 cd web && npm run dev             # :5173
 ```
+
+## 发布流程
+
+```bash
+git tag v1.2.0          # 带 - 的 tag（如 v1.2.0-rc1）会被标记为预发布
+git push origin v1.2.0
+```
+
+推送 tag 触发 `.github/workflows/release.yaml`：
+
+1. **web** — 构建前端并上传为 artifact（只跑一次，五个平台共用）
+2. **verify** — `go vet` + `go test`，任一失败则整个发布中止
+3. **build** — 矩阵交叉编译 5 个平台，`-X` 注入 tag 作为版本号，打包成 tar.gz / zip
+4. **docker** — 构建并推送多架构镜像到 `ghcr.io/whohhnb/cf-ip-optimizer`
+5. **release** — 汇总产物、生成 SHA256、用 GitHub 自动生成的 release notes 发版
+
+手动触发（Actions → release → Run workflow）只构建产物不发版，用来验证 workflow 本身。
 
 ## 使用流程
 
