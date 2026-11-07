@@ -108,6 +108,7 @@ CREATE TABLE IF NOT EXISTS scan_results (
   latency REAL NOT NULL DEFAULT 0,
   jitter  REAL NOT NULL DEFAULT 0,
   loss    REAL NOT NULL DEFAULT 0,
+  http_rtt REAL NOT NULL DEFAULT 0,
   speed   REAL NOT NULL DEFAULT 0,
   score   REAL NOT NULL DEFAULT 0,
   colo    TEXT NOT NULL DEFAULT '',
@@ -159,6 +160,16 @@ func (s *Store) migrate() error {
 	if !ucols["token_version"] {
 		if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0`); err != nil {
 			return fmt.Errorf("migrate users: %w", err)
+		}
+	}
+	// 老库补 http_rtt 列（新增于 v1.1 的 HTTP 层往返统计）
+	rcols, err := s.columns("scan_results")
+	if err != nil {
+		return err
+	}
+	if !rcols["http_rtt"] {
+		if _, err := s.db.Exec(`ALTER TABLE scan_results ADD COLUMN http_rtt REAL NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("migrate results: %w", err)
 		}
 	}
 	if !cols["credentials"] {

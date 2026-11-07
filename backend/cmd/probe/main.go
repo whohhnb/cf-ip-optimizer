@@ -34,6 +34,6 @@ func main() {
 	fmt.Printf("Trace      colo=%q rtt=%.1fms err=%v  (%s)\n", colo, rtt, err, time.Since(t0).Round(time.Millisecond))
 
 	t0 = time.Now()
-	mbps, err := scanner.Download(ctx, ip, 1<<20, 6*time.Second)
-	fmt.Printf("Download   speed=%.2fMbps err=%v  (%s)\n", mbps, err, time.Since(t0).Round(time.Millisecond))
+	mbps, dlColo, err := scanner.Download(ctx, ip, 1<<20, 6*time.Second)
+	fmt.Printf("Download   speed=%.2fMbps colo=%q err=%v  (%s)\n", mbps, dlColo, err, time.Since(t0).Round(time.Millisecond))
 }

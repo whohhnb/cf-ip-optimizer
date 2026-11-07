@@ -79,6 +79,10 @@ type ScanResult struct {
 	Latency float64 `json:"latency"` // ms (median of samples)
 	Jitter  float64 `json:"jitter"`  // ms (max-min)
 	Loss    float64 `json:"loss"`    // 0..1
+	// HTTPRTT is the full HTTP round trip through this edge (TCP + TLS +
+	// request/response). Comparing it with Latency exposes paths that accept
+	// the SYN quickly but then queue or throttle the actual transfer.
+	HTTPRTT float64 `json:"httpRtt"` // ms, 0 = not measured
 	Speed   float64 `json:"speed"`   // Mbps, 0 = not measured
 	Score   float64 `json:"score"`   // 0..100
 	Colo    string  `json:"colo"`

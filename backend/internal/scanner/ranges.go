@@ -97,17 +97,23 @@ func fetchRanges(ctx context.Context) ([]*net.IPNet, []*net.IPNet) {
 	return v4, v6
 }
 
-// Sample picks n addresses spread across the ranges, weighted by range size,
-// with a light random offset so repeated scans explore different addresses.
+// Sample picks n addresses across the ranges.
+//
+// Half the budget is split evenly, so a small block (a single /22 in one
+// region) still gets sampled on every scan instead of being statistically
+// invisible next to 104.16.0.0/13. The other half is weighted by block size,
+// because the big blocks really do hold most of the usable space.
 func Sample(ranges []*net.IPNet, n int, rnd *rand.Rand) []string {
 	if n <= 0 || len(ranges) == 0 {
 		return nil
 	}
-	type weighted struct {
-		n    *net.IPNet
-		bits uint
+
+	type block struct {
+		net  *net.IPNet
+		host uint
+		size float64
 	}
-	list := make([]weighted, 0, len(ranges))
+	blocks := make([]block, 0, len(ranges))
 	var total float64
 	for _, r := range ranges {
 		ones, bits := r.Mask.Size()
@@ -119,54 +125,80 @@ func Sample(ranges []*net.IPNet, n int, rnd *rand.Rand) []string {
 			continue
 		}
 		size := float64(uint64(1) << uint(min(host, 32)))
-		list = append(list, weighted{n: r, bits: uint(host)})
+		blocks = append(blocks, block{net: r, host: uint(host), size: size})
 		total += size
 	}
-	if total == 0 {
+	if total == 0 || len(blocks) == 0 {
 		return nil
 	}
 
 	seen := make(map[string]struct{}, n)
 	out := make([]string, 0, n)
+
+	take := func(b block) bool {
+		base := ipToBigInt(b.net.IP)
+		for attempt := 0; attempt < 8; attempt++ {
+			var offset uint64
+			if b.host >= 63 {
+				offset = rnd.Uint64()
+			} else {
+				offset = uint64(rnd.Int63n(int64(uint64(1) << b.host)))
+			}
+			// skip network / broadcast-ish edges
+			if offset < 2 && b.host > 2 {
+				offset += 2
+			}
+			ip := bigIntToIP(base.Add(base, newBigInt(offset)), len(b.net.IP))
+			if ip == nil || !b.net.Contains(ip) {
+				continue
+			}
+			s := ip.String()
+			if _, dup := seen[s]; dup {
+				continue
+			}
+			seen[s] = struct{}{}
+			out = append(out, s)
+			return true
+		}
+		return false
+	}
+
+	// 1) even quota, so no block is crowded out
+	even := n / 2
+	per := even / len(blocks)
+	if per < 1 {
+		per = 1
+	}
+	for _, b := range blocks {
+		if len(out) >= even {
+			break
+		}
+		for k := 0; k < per && len(out) < n; k++ {
+			take(b)
+		}
+	}
+
+	// 2) the rest follows block size
+	misses := 0
 	for len(out) < n {
-		pick := rnd.Float64() * total
+		target := rnd.Float64() * total
 		var acc float64
-		var chosen *net.IPNet
-		for _, w := range list {
-			ones, bits := w.n.Mask.Size()
-			size := float64(uint64(1) << uint(min(bits-ones, 32)))
-			acc += size
-			if pick <= acc {
-				chosen = w.n
+		chosen := blocks[len(blocks)-1]
+		for _, b := range blocks {
+			acc += b.size
+			if target <= acc {
+				chosen = b
 				break
 			}
 		}
-		if chosen == nil {
-			chosen = list[len(list)-1].n
-		}
-		ones, bits := chosen.Mask.Size()
-		hostBits := bits - ones
-		base := ipToBigInt(chosen.IP)
-		var offset uint64
-		if hostBits >= 63 {
-			offset = rnd.Uint64()
-		} else {
-			offset = uint64(rnd.Int63n(int64(uint64(1) << uint(hostBits))))
-		}
-		// skip network/broadcast-ish edges
-		if offset < 2 && hostBits > 2 {
-			offset += 2
-		}
-		ip := bigIntToIP(base.Add(base, newBigInt(offset)), len(chosen.IP))
-		if ip == nil || !chosen.Contains(ip) {
+		if take(chosen) {
+			misses = 0
 			continue
 		}
-		s := ip.String()
-		if _, dup := seen[s]; dup {
-			continue
+		// a block too small to yield a fresh address must not spin forever
+		if misses++; misses > 64 {
+			break
 		}
-		seen[s] = struct{}{}
-		out = append(out, s)
 	}
 	sort.Strings(out)
 	return out

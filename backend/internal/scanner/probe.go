@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"net"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 )
@@ -73,17 +74,15 @@ func TCPProbe(ctx context.Context, ip string, port int, timeout time.Duration, s
 	if len(lats) == 0 {
 		return 0, 0, loss
 	}
-	minL, maxL, sum := lats[0], lats[0], 0.0
-	for _, l := range lats {
-		if l < minL {
-			minL = l
-		}
-		if l > maxL {
-			maxL = l
-		}
-		sum += l
+	// 中位数而不是均值：跨境链路上一次 500ms 的瞬时排队就能把均值拉高
+	// 一倍，而这个 IP 实际上完全可用
+	sort.Float64s(lats)
+	n := len(lats)
+	med := lats[n/2]
+	if n%2 == 0 {
+		med = (lats[n/2-1] + lats[n/2]) / 2
 	}
-	return sum / float64(len(lats)), maxL - minL, loss
+	return med, lats[n-1] - lats[0], loss
 }
 
 // pinnedTransport forces every connection to a specific edge IP while keeping
@@ -137,9 +136,39 @@ func Trace(ctx context.Context, ip, host string, timeout time.Duration) (colo st
 	return colo, rtt, nil
 }
 
-// Download measures throughput in Mbps by pulling `bytes` from the edge.
-// speed.cloudflare.com is used because it serves a predictable payload.
-func Download(ctx context.Context, ip string, bytes int, timeout time.Duration) (mbps float64, err error) {
+// coloFromHeader pulls the IATA code out of Cloudflare's cf-ray header
+// ("7bd32409eda7b020-SJC"). Reading it here saves the extra round trip a
+// dedicated /cdn-cgi/trace request would cost.
+func coloFromHeader(h http.Header) string {
+	ray := h.Get("Cf-Ray")
+	i := strings.LastIndex(ray, "-")
+	if i < 0 || len(ray)-i-1 != 3 {
+		return ""
+	}
+	code := ray[i+1:]
+	for _, c := range code {
+		if c < 'A' || c > 'Z' {
+			return ""
+		}
+	}
+	return code
+}
+
+const downloadUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+	"(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+
+// Download measures throughput in Mbps by pulling `bytes` from the edge, and
+// returns the colo code read from the response headers.
+//
+// Two details decide whether the number is meaningful:
+//   - the clock starts after the response headers arrive, so the TCP and TLS
+//     handshakes never enter the window
+//   - the first slice of the body is discarded, because TCP slow start makes
+//     the opening tens of milliseconds far slower than the sustained rate
+//
+// Without both, a 3 MB sample reads 20-30% low on a fast link and the ranking
+// skews towards slow nodes.
+func Download(ctx context.Context, ip string, bytes int, timeout time.Duration) (mbps float64, colo string, err error) {
 	const host = "speed.cloudflare.com"
 	tr := pinnedTransport(ip, host, timeout)
 	defer tr.CloseIdleConnections()
@@ -148,25 +177,69 @@ func Download(ctx context.Context, ip string, bytes int, timeout time.Duration) 
 	url := fmt.Sprintf("https://%s/__down?bytes=%d", host, bytes)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	req.Host = host
-	start := time.Now()
+	req.Header.Set("User-Agent", downloadUA)
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0, err
+		return 0, "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
-		return 0, fmt.Errorf("status %d", resp.StatusCode)
+		return 0, "", fmt.Errorf("status %d", resp.StatusCode)
 	}
-	n, err := io.Copy(io.Discard, io.LimitReader(resp.Body, int64(bytes)))
-	elapsed := time.Since(start).Seconds()
-	if err != nil && n == 0 {
-		return 0, err
+	colo = coloFromHeader(resp.Header)
+
+	// headers are in: handshake is done, start the clock here
+	start := time.Now()
+
+	// skip roughly an eighth of the payload (capped at 256 KiB) as warm-up
+	warm := bytes / 8
+	if warm > 256<<10 {
+		warm = 256 << 10
 	}
-	if elapsed <= 0 {
-		return 0, nil
+	if warm < 32<<10 {
+		warm = 32 << 10
 	}
-	return (float64(n) * 8 / 1e6) / elapsed, nil
+
+	body := io.LimitReader(resp.Body, int64(bytes))
+	buf := make([]byte, 64<<10)
+
+	var (
+		total     int64
+		warmBytes int64
+		warmAt    time.Time
+		lastAt    time.Time
+	)
+	for {
+		n, rerr := body.Read(buf)
+		if n > 0 {
+			total += int64(n)
+			lastAt = time.Now()
+			if warmAt.IsZero() && total >= int64(warm) {
+				warmAt, warmBytes = lastAt, total
+			}
+		}
+		if rerr != nil {
+			// io.EOF means we got the whole payload; anything else still
+			// leaves us with the bytes read so far, which is usable
+			break
+		}
+	}
+	if lastAt.IsZero() {
+		return 0, colo, fmt.Errorf("未收到数据")
+	}
+
+	measureBytes := total - warmBytes
+	measureDur := lastAt.Sub(warmAt)
+	if warmAt.IsZero() || measureBytes <= 0 || measureDur <= 0 {
+		// payload too small to warm up in: fall back to the whole window
+		measureBytes = total
+		measureDur = lastAt.Sub(start)
+	}
+	if measureDur <= 0 {
+		return 0, colo, nil
+	}
+	return (float64(measureBytes) * 8 / 1e6) / measureDur.Seconds(), colo, nil
 }

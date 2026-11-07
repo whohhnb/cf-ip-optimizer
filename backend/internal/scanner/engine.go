@@ -4,7 +4,9 @@ import (
 	"context"
 	"math"
 	"math/rand"
+	"net"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,6 +24,23 @@ type Options struct {
 	Port        int
 	IPv6        bool
 	Host        string // target hostname used for SNI + /cdn-cgi/trace
+
+	// LatencyMax drops candidates slower than this before the HTTP check
+	// runs, so a slow region never eats the download-test budget. 0 = off.
+	LatencyMax float64
+	// SpeedFloor is the minimum acceptable throughput in Mbps. 0 = off.
+	SpeedFloor float64
+	// SpeedOK stops the download phase once this many nodes clear SpeedFloor.
+	// 0 = measure every finalist.
+	SpeedOK int
+	// ColoAllow keeps only these IATA codes. Empty = no restriction.
+	ColoAllow []string
+	// NoSpeedTest skips the throughput phase entirely (latency-only users).
+	NoSpeedTest bool
+	// Seeds are addresses that scored well last time. Re-testing them beats
+	// drawing a fresh random set, because anycast means most new samples land
+	// on the same PoP anyway.
+	Seeds []string
 }
 
 func (o *Options) normalize() {
@@ -52,6 +71,18 @@ func (o *Options) normalize() {
 	if o.Port == 0 {
 		o.Port = 443
 	}
+	if o.SpeedOK < 0 {
+		o.SpeedOK = 0
+	}
+	if o.SpeedOK > o.SpeedTop {
+		o.SpeedOK = o.SpeedTop
+	}
+	if o.LatencyMax < 0 {
+		o.LatencyMax = 0
+	}
+	if o.SpeedFloor < 0 {
+		o.SpeedFloor = 0
+	}
 }
 
 type Progress struct {
@@ -68,6 +99,15 @@ type Outcome struct {
 	OK      int
 }
 
+type candidate struct {
+	ip      string
+	latency float64
+	jitter  float64
+	loss    float64
+	colo    string
+	httpRTT float64
+}
+
 // Run executes the full pipeline: sample -> TCP latency -> edge verification ->
 // throughput -> scoring.
 func Run(ctx context.Context, opts Options, emit func(Progress)) (Outcome, error) {
@@ -80,12 +120,17 @@ func Run(ctx context.Context, opts Options, emit func(Progress)) (Outcome, error
 		return out, errNoRanges
 	}
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
-	ips := Sample(ranges, opts.Candidates, rnd)
+	ips := buildCandidates(ranges, opts, rnd)
 	if len(ips) == 0 {
 		return out, errNoRanges
 	}
 	total := len(ips)
-	emit(Progress{Stage: "延迟测速", Total: total, Msg: "开始 TCP 握手探测"})
+	if len(opts.Seeds) > 0 {
+		emit(Progress{Stage: "延迟测速", Total: total,
+			Msg: "复用上轮高分 IP " + itoa(len(opts.Seeds)) + " 个，共 " + itoa(total) + " 个候选"})
+	} else {
+		emit(Progress{Stage: "延迟测速", Total: total, Msg: "开始 TCP 握手探测"})
+	}
 
 	type res struct {
 		ip      string
@@ -154,11 +199,17 @@ func Run(ctx context.Context, opts Options, emit func(Progress)) (Outcome, error
 	}
 
 	// keep only responsive candidates, best latency first
-	alive := make([]res, 0, len(results))
+	alive := make([]candidate, 0, len(results))
+	droppedSlow := 0
 	for _, r := range results {
-		if r.ok && r.latency > 0 {
-			alive = append(alive, r)
+		if !r.ok || r.latency <= 0 {
+			continue
 		}
+		if opts.LatencyMax > 0 && r.latency > opts.LatencyMax {
+			droppedSlow++
+			continue
+		}
+		alive = append(alive, candidate{ip: r.ip, latency: r.latency, jitter: r.jitter, loss: r.loss})
 	}
 	sort.Slice(alive, func(i, j int) bool { return alive[i].latency < alive[j].latency })
 	out.Tested = int(atomic.LoadInt64(&tested))
@@ -169,42 +220,80 @@ func Run(ctx context.Context, opts Options, emit func(Progress)) (Outcome, error
 	if len(shortlist) > opts.SpeedTop*3 {
 		shortlist = shortlist[:opts.SpeedTop*3]
 	}
-	emit(Progress{Stage: "可用性校验", Tested: out.Tested, Total: total, OK: out.OK, Msg: "校验 HTTP 边缘节点"})
+	msg := "校验 HTTP 边缘节点"
+	if droppedSlow > 0 {
+		msg = "校验 HTTP 边缘节点（延迟超过 " + itoa(int(opts.LatencyMax)) + "ms 的 " + itoa(droppedSlow) + " 个已剔除）"
+	}
+	emit(Progress{Stage: "可用性校验", Tested: out.Tested, Total: total, OK: out.OK, Msg: msg})
 
-	verified := make([]res, 0, len(shortlist))
-	colos := make(map[string]string, len(shortlist))
+	verified := make([]candidate, 0, len(shortlist))
 	for _, r := range shortlist {
 		if ctx.Err() != nil {
 			return out, ctx.Err()
 		}
-		colo, _, err := Trace(ctx, r.ip, opts.Host, opts.Timeout*2)
+		colo, rtt, err := Trace(ctx, r.ip, opts.Host, opts.Timeout*3)
 		if err != nil {
 			continue
 		}
-		colos[r.ip] = colo
+		if len(opts.ColoAllow) > 0 && !coloAllowed(colo, opts.ColoAllow) {
+			continue
+		}
+		r.colo = colo
+		r.httpRTT = rtt
 		verified = append(verified, r)
 	}
 	if len(verified) == 0 {
-		// fall back to raw latency ranking if trace is blocked
-		verified = shortlist
+		if len(opts.ColoAllow) > 0 {
+			return out, errColoEmpty
+		}
+		// trace 被墙时退化为纯延迟排序，至少让用户拿到可用结果
+		verified = append(verified, shortlist...)
 	}
-	if len(verified) > opts.SpeedTop {
-		verified = verified[:opts.SpeedTop]
+	emit(Progress{Stage: "可用性校验", Tested: out.Tested, Total: total, OK: out.OK,
+		Msg: "HTTP 校验 " + itoa(len(verified)) + " / " + itoa(len(shortlist)) + " 通过"})
+
+	// Trace 已经付过代价了，先把所有校验过的节点的 colo / RTT 记下来，
+	// 再裁剪下载队列——否则多测的那些节点信息会白扔
+	colos := make(map[string]string, len(verified))
+	httpRTTs := make(map[string]float64, len(verified))
+	for _, r := range verified {
+		colos[r.ip] = r.colo
+		httpRTTs[r.ip] = r.httpRTT
+	}
+
+	finalists := verified
+	if len(finalists) > opts.SpeedTop {
+		finalists = finalists[:opts.SpeedTop]
 	}
 
 	// phase 4: throughput on the finalists
-	emit(Progress{Stage: "下载测速", Tested: out.Tested, Total: total, OK: out.OK, Msg: "对 Top 节点测速"})
-	speeds := make(map[string]float64, len(verified))
-	for i, r := range verified {
-		if ctx.Err() != nil {
-			return out, ctx.Err()
+	speeds := make(map[string]float64, len(finalists))
+	if !opts.NoSpeedTest {
+		emit(Progress{Stage: "下载测速", Tested: out.Tested, Total: total, OK: out.OK, Msg: "对 Top 节点测速"})
+		passed := 0
+		for i, r := range finalists {
+			if ctx.Err() != nil {
+				return out, ctx.Err()
+			}
+			mbps, colo, err := Download(ctx, r.ip, opts.SpeedBytes, 8*time.Second)
+			if err == nil {
+				speeds[r.ip] = mbps
+				// 下载响应头里的 cf-ray 是免费的机房信息，trace 失败时补位
+				if colo != "" && colos[r.ip] == "" {
+					colos[r.ip] = colo
+				}
+				if opts.SpeedFloor > 0 && mbps >= opts.SpeedFloor {
+					passed++
+				}
+			}
+			emit(Progress{Stage: "下载测速", Tested: out.Tested, Total: total, OK: out.OK,
+				Msg: "测速 " + itoa(i+1) + " / " + itoa(len(finalists))})
+			if opts.SpeedOK > 0 && passed >= opts.SpeedOK {
+				emit(Progress{Stage: "下载测速", Tested: out.Tested, Total: total, OK: out.OK,
+					Msg: "已有 " + itoa(passed) + " 个达到 " + itoa(int(opts.SpeedFloor)) + " Mbps，提前结束"})
+				break
+			}
 		}
-		mbps, err := Download(ctx, r.ip, opts.SpeedBytes, 6*time.Second)
-		if err == nil {
-			speeds[r.ip] = mbps
-		}
-		emit(Progress{Stage: "下载测速", Tested: out.Tested, Total: total, OK: out.OK,
-			Msg: "测速 " + itoa(i+1) + " / " + itoa(len(verified))})
 	}
 
 	// phase 5: score
@@ -214,16 +303,24 @@ func Run(ctx context.Context, opts Options, emit func(Progress)) (Outcome, error
 			Latency: round2(r.latency),
 			Jitter:  round2(r.jitter),
 			Loss:    round2(r.loss * 100),
+			HTTPRTT: round2(httpRTTs[r.ip]),
 			OK:      true,
 			Colo:    colos[r.ip],
 		}
 		if sp, ok := speeds[r.ip]; ok {
 			sr.Speed = round2(sp)
 		}
-		sr.Score = round2(score(r.latency, r.loss, sr.Speed))
+		sr.Score = round2(score(r.latency, r.loss, sr.Speed, sr.HTTPRTT))
 		out.Results = append(out.Results, sr)
 	}
+	// 通过了 HTTP 校验的节点排在前面：没校验过的可能根本不能服务这个域名
+	// （403 / 证书不匹配 / 被墙），哪怕延迟数字更好看也不该抢走槽位
 	sort.Slice(out.Results, func(i, j int) bool {
+		vi := out.Results[i].HTTPRTT > 0
+		vj := out.Results[j].HTTPRTT > 0
+		if vi != vj {
+			return vi
+		}
 		if math.Abs(out.Results[i].Score-out.Results[j].Score) < 0.01 {
 			return out.Results[i].Latency < out.Results[j].Latency
 		}
@@ -233,17 +330,75 @@ func Run(ctx context.Context, opts Options, emit func(Progress)) (Outcome, error
 	return out, nil
 }
 
-// score blends latency, throughput and packet loss into 0..100.
-// Candidates that never reached the throughput phase are ranked on the two
-// metrics we do have, scaled so they cannot leapfrog a measured node.
-func score(latencyMs, loss float64, speedMbps float64) float64 {
+// buildCandidates merges last round's winners with a fresh sample. Re-testing
+// known-good addresses is worth more than extra random draws: under anycast
+// most new samples resolve to the same PoP, so the marginal value of another
+// random IP is near zero while a previously fast one is a proven route.
+func buildCandidates(ranges []*net.IPNet, opts Options, rnd *rand.Rand) []string {
+	seen := make(map[string]struct{}, opts.Candidates)
+	out := make([]string, 0, opts.Candidates)
+	add := func(ip string) bool {
+		if len(out) >= opts.Candidates {
+			return false
+		}
+		if _, dup := seen[ip]; dup {
+			return false
+		}
+		seen[ip] = struct{}{}
+		out = append(out, ip)
+		return true
+	}
+	for _, ip := range opts.Seeds {
+		add(ip)
+	}
+	if rest := opts.Candidates - len(out); rest > 0 {
+		for _, ip := range Sample(ranges, rest, rnd) {
+			add(ip)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func coloAllowed(colo string, allow []string) bool {
+	if colo == "" {
+		return false
+	}
+	for _, a := range allow {
+		if strings.EqualFold(strings.TrimSpace(a), colo) {
+			return true
+		}
+	}
+	return false
+}
+
+// score blends latency, throughput, packet loss and the HTTP-layer round trip
+// into 0..100. Candidates that never reached the throughput phase are ranked on
+// the metrics we do have, scaled so they cannot leapfrog a measured node.
+func score(latencyMs, loss float64, speedMbps, httpRTT float64) float64 {
 	latScore := clamp01(1 - (latencyMs-10)/490)
 	lossScore := clamp01(1 - loss)
+
+	var total float64
 	if speedMbps <= 0 {
-		return 100 * (0.65*latScore + 0.35*lossScore) * 0.92
+		total = 100 * (0.65*latScore + 0.35*lossScore) * 0.92
+	} else {
+		spdScore := clamp01(speedMbps / 50)
+		total = 100 * (0.45*latScore + 0.30*spdScore + 0.25*lossScore)
 	}
-	spdScore := clamp01(speedMbps / 50)
-	return 100 * (0.45*latScore + 0.30*spdScore + 0.25*lossScore)
+
+	// A healthy edge answers in about 4 TCP round trips (handshake, two TLS
+	// flights, one HTTP). Much more than that means the path is throttled or
+	// queueing even though the SYN was fast — a node that looks great on
+	// latency but feels slow in a browser.
+	if httpRTT > 0 && latencyMs > 0 {
+		// TLS 1.3 下正常值在 3.0~3.6（TCP 1 + TLS 1 + HTTP 1），
+		// 超过 3.5 开始扣分，到 8 倍扣满 15%
+		if ratio := httpRTT / latencyMs; ratio > 3.5 {
+			total *= 1 - clamp01((ratio-3.5)/4.5)*0.15
+		}
+	}
+	return total
 }
 
 func clamp01(v float64) float64 {
@@ -280,7 +435,10 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
-var errNoRanges = &scanErr{"无法获取 Cloudflare 地址段"}
+var (
+	errNoRanges  = &scanErr{"无法获取 Cloudflare 地址段"}
+	errColoEmpty = &scanErr{"按机房白名单过滤后没有可用节点，请放宽限制或关闭白名单"}
+)
 
 type scanErr struct{ s string }
 

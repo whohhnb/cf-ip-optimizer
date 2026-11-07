@@ -216,14 +216,14 @@ func (s *Store) InsertResults(jobID int64, results []model.ScanResult) error {
 	if err != nil {
 		return err
 	}
-	stmt, err := tx.Prepare(`INSERT INTO scan_results(job_id,ip,latency,jitter,loss,speed,score,colo,ok) VALUES(?,?,?,?,?,?,?,?,?)`)
+	stmt, err := tx.Prepare(`INSERT INTO scan_results(job_id,ip,latency,jitter,loss,http_rtt,speed,score,colo,ok) VALUES(?,?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		tx.Rollback()
 		return err
 	}
 	defer stmt.Close()
 	for _, r := range results {
-		if _, err := stmt.Exec(jobID, r.IP, r.Latency, r.Jitter, r.Loss, r.Speed, r.Score, r.Colo, boolInt(r.OK)); err != nil {
+		if _, err := stmt.Exec(jobID, r.IP, r.Latency, r.Jitter, r.Loss, r.HTTPRTT, r.Speed, r.Score, r.Colo, boolInt(r.OK)); err != nil {
 			tx.Rollback()
 			return err
 		}
@@ -231,11 +231,40 @@ func (s *Store) InsertResults(jobID int64, results []model.ScanResult) error {
 	return tx.Commit()
 }
 
+// SeedIPs returns the best addresses from this domain's most recent finished
+// scan. Feeding them back as candidates beats another round of pure random
+// sampling, because anycast sends most new samples to the same PoP anyway.
+func (s *Store) SeedIPs(domainID int64, n int) []string {
+	if n <= 0 {
+		return nil
+	}
+	var jobID int64
+	err := s.db.QueryRow(`SELECT id FROM scan_jobs WHERE domain_id=? AND status='done'
+		ORDER BY COALESCE(finished_at, started_at) DESC LIMIT 1`, domainID).Scan(&jobID)
+	if err != nil {
+		return nil
+	}
+	rows, err := s.db.Query(`SELECT ip FROM scan_results WHERE job_id=? AND ok=1 AND score>0
+		ORDER BY score DESC LIMIT ?`, jobID, n)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var ip string
+		if err := rows.Scan(&ip); err == nil {
+			out = append(out, ip)
+		}
+	}
+	return out
+}
+
 func (s *Store) ResultsByJob(jobID int64, limit int) ([]model.ScanResult, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
-	rows, err := s.db.Query(`SELECT id,job_id,ip,latency,jitter,loss,speed,score,colo,ok FROM scan_results WHERE job_id=? ORDER BY ok DESC, score DESC LIMIT ?`, jobID, limit)
+	rows, err := s.db.Query(`SELECT id,job_id,ip,latency,jitter,loss,http_rtt,speed,score,colo,ok FROM scan_results WHERE job_id=? ORDER BY ok DESC, score DESC LIMIT ?`, jobID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +273,7 @@ func (s *Store) ResultsByJob(jobID int64, limit int) ([]model.ScanResult, error)
 	for rows.Next() {
 		var r model.ScanResult
 		var ok int
-		if err := rows.Scan(&r.ID, &r.JobID, &r.IP, &r.Latency, &r.Jitter, &r.Loss, &r.Speed, &r.Score, &r.Colo, &ok); err != nil {
+		if err := rows.Scan(&r.ID, &r.JobID, &r.IP, &r.Latency, &r.Jitter, &r.Loss, &r.HTTPRTT, &r.Speed, &r.Score, &r.Colo, &ok); err != nil {
 			return nil, err
 		}
 		r.OK = ok != 0
