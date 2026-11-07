@@ -1,0 +1,26 @@
+# 面板域名（由 docker-compose 传入 PILOT_DOMAIN）
+{$PILOT_DOMAIN} {
+	tls {$ACME_EMAIL}
+
+	encode zstd gzip
+
+	# 扫描进度使用 SSE，必须关闭响应缓冲
+	reverse_proxy edgepilot:8080 {
+		flush_interval -1
+		header_up X-Forwarded-For {remote_host}
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	log {
+		output file /data/access.log {
+			roll_size 20MiB
+			roll_keep 5
+		}
+	}
+}

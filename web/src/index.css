@@ -1,0 +1,230 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+    --font-heading: var(--font-sans);
+    --font-sans: 'Geist Variable', sans-serif;
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) * 0.6);
+    --radius-md: calc(var(--radius) * 0.8);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) * 1.4);
+    --radius-2xl: calc(var(--radius) * 1.8);
+    --radius-3xl: calc(var(--radius) * 2.2);
+    --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* ------------------------------------------------------------------
+   Material Design 3 inspired color system.
+
+   Each palette only declares four seed colors. Every surface, border
+   and text token is derived from those seeds with color-mix(), which
+   reproduces MD3's "tonal surface" behaviour: light surfaces are the
+   primary hue mixed with white at very low percentages, dark surfaces
+   are the same hue mixed into near-black.
+   ------------------------------------------------------------------ */
+
+:root {
+    --radius: 0.75rem;
+    /* default palette: emerald */
+    --seed-primary: oklch(0.49 0.12 148);
+    --seed-on-primary: oklch(0.99 0 0);
+    --seed-secondary: oklch(0.48 0.04 148);
+    --seed-tertiary: oklch(0.55 0.1 195);
+    --seed-error: oklch(0.55 0.21 27);
+}
+
+[data-theme="violet"] {
+    --seed-primary: oklch(0.5 0.15 302);
+    --seed-on-primary: oklch(0.99 0 0);
+    --seed-secondary: oklch(0.5 0.04 300);
+    --seed-tertiary: oklch(0.55 0.1 340);
+    --seed-error: oklch(0.55 0.21 27);
+}
+
+[data-theme="azure"] {
+    --seed-primary: oklch(0.51 0.17 255);
+    --seed-on-primary: oklch(0.99 0 0);
+    --seed-secondary: oklch(0.5 0.04 250);
+    --seed-tertiary: oklch(0.58 0.1 205);
+    --seed-error: oklch(0.55 0.21 27);
+}
+
+[data-theme="teal"] {
+    --seed-primary: oklch(0.48 0.09 190);
+    --seed-on-primary: oklch(0.99 0 0);
+    --seed-secondary: oklch(0.5 0.03 190);
+    --seed-tertiary: oklch(0.55 0.09 155);
+    --seed-error: oklch(0.55 0.21 27);
+}
+
+[data-theme="emerald"] {
+    --seed-primary: oklch(0.49 0.12 148);
+    --seed-on-primary: oklch(0.99 0 0);
+    --seed-secondary: oklch(0.48 0.04 148);
+    --seed-tertiary: oklch(0.55 0.1 195);
+    --seed-error: oklch(0.55 0.21 27);
+}
+
+[data-theme="amber"] {
+    --seed-primary: oklch(0.63 0.13 72);
+    --seed-on-primary: oklch(0.22 0.03 72);
+    --seed-secondary: oklch(0.5 0.04 72);
+    --seed-tertiary: oklch(0.55 0.11 40);
+    --seed-error: oklch(0.55 0.21 27);
+}
+
+[data-theme="rose"] {
+    --seed-primary: oklch(0.52 0.16 12);
+    --seed-on-primary: oklch(0.99 0 0);
+    --seed-secondary: oklch(0.5 0.04 12);
+    --seed-tertiary: oklch(0.55 0.09 330);
+    --seed-error: oklch(0.55 0.21 27);
+}
+
+[data-theme="graphite"] {
+    --seed-primary: oklch(0.32 0.015 260);
+    --seed-on-primary: oklch(0.99 0 0);
+    --seed-secondary: oklch(0.5 0.01 260);
+    --seed-tertiary: oklch(0.55 0.03 220);
+    --seed-error: oklch(0.55 0.21 27);
+}
+
+/* ---- light scheme (derived) ---- */
+
+:root {
+    --background: color-mix(in oklab, var(--seed-primary) 5%, white);
+    --foreground: color-mix(in oklab, var(--seed-primary) 18%, oklch(0.15 0 0));
+
+    --card: color-mix(in oklab, var(--seed-primary) 2%, white);
+    --card-foreground: var(--foreground);
+    --popover: color-mix(in oklab, var(--seed-primary) 1.5%, white);
+    --popover-foreground: var(--foreground);
+
+    --primary: var(--seed-primary);
+    --primary-foreground: var(--seed-on-primary);
+    --secondary: color-mix(in oklab, var(--seed-primary) 13%, white);
+    --secondary-foreground: color-mix(in oklab, var(--seed-primary) 62%, black);
+    --muted: color-mix(in oklab, var(--seed-primary) 8%, white);
+    --muted-foreground: color-mix(in oklab, var(--seed-primary) 26%, oklch(0.42 0 0));
+    --accent: color-mix(in oklab, var(--seed-primary) 12%, white);
+    --accent-foreground: color-mix(in oklab, var(--seed-primary) 58%, black);
+
+    --destructive: var(--seed-error);
+
+    --border: color-mix(in oklab, var(--seed-primary) 13%, white);
+    --input: color-mix(in oklab, var(--seed-primary) 16%, white);
+    --ring: color-mix(in oklab, var(--seed-primary) 45%, white);
+
+    --chart-1: var(--seed-primary);
+    --chart-2: var(--seed-tertiary);
+    --chart-3: color-mix(in oklab, var(--seed-secondary) 55%, black);
+    --chart-4: color-mix(in oklab, var(--seed-primary) 62%, white);
+    --chart-5: color-mix(in oklab, var(--seed-tertiary) 55%, white);
+
+    --sidebar: color-mix(in oklab, var(--seed-primary) 4%, white);
+    --sidebar-foreground: var(--foreground);
+    --sidebar-primary: var(--seed-primary);
+    --sidebar-primary-foreground: var(--seed-on-primary);
+    --sidebar-accent: color-mix(in oklab, var(--seed-primary) 12%, white);
+    --sidebar-accent-foreground: color-mix(in oklab, var(--seed-primary) 58%, black);
+    --sidebar-border: var(--border);
+    --sidebar-ring: var(--ring);
+}
+
+/* ---- dark scheme (derived) ---- */
+
+.dark {
+    --background: color-mix(in oklab, var(--seed-primary) 8%, oklch(0.16 0.005 260));
+    --foreground: color-mix(in oklab, var(--seed-primary) 8%, oklch(0.95 0 0));
+
+    --card: color-mix(in oklab, var(--seed-primary) 10%, oklch(0.2 0.005 260));
+    --card-foreground: var(--foreground);
+    --popover: color-mix(in oklab, var(--seed-primary) 12%, oklch(0.21 0.005 260));
+    --popover-foreground: var(--foreground);
+
+    --primary: color-mix(in oklab, var(--seed-primary) 55%, white);
+    --primary-foreground: color-mix(in oklab, var(--seed-primary) 45%, black);
+    --secondary: color-mix(in oklab, var(--seed-primary) 14%, oklch(0.24 0.005 260));
+    --secondary-foreground: color-mix(in oklab, var(--seed-primary) 6%, white);
+    --muted: color-mix(in oklab, var(--seed-primary) 12%, oklch(0.24 0.005 260));
+    --muted-foreground: color-mix(in oklab, var(--seed-primary) 10%, oklch(0.7 0 0));
+    --accent: color-mix(in oklab, var(--seed-primary) 18%, oklch(0.26 0.005 260));
+    --accent-foreground: color-mix(in oklab, var(--seed-primary) 6%, white);
+
+    --destructive: color-mix(in oklab, var(--seed-error) 72%, white);
+
+    --border: color-mix(in oklab, var(--seed-primary) 14%, oklch(0.3 0.005 260));
+    --input: color-mix(in oklab, var(--seed-primary) 16%, oklch(0.32 0.005 260));
+    --ring: color-mix(in oklab, var(--seed-primary) 40%, white);
+
+    --chart-1: color-mix(in oklab, var(--seed-primary) 55%, white);
+    --chart-2: color-mix(in oklab, var(--seed-tertiary) 60%, white);
+    --chart-3: color-mix(in oklab, var(--seed-secondary) 30%, white);
+    --chart-4: color-mix(in oklab, var(--seed-primary) 30%, white);
+    --chart-5: color-mix(in oklab, var(--seed-tertiary) 35%, white);
+
+    --sidebar: color-mix(in oklab, var(--seed-primary) 9%, oklch(0.18 0.005 260));
+    --sidebar-foreground: var(--foreground);
+    --sidebar-primary: color-mix(in oklab, var(--seed-primary) 55%, white);
+    --sidebar-primary-foreground: color-mix(in oklab, var(--seed-primary) 45%, black);
+    --sidebar-accent: color-mix(in oklab, var(--seed-primary) 18%, oklch(0.26 0.005 260));
+    --sidebar-accent-foreground: color-mix(in oklab, var(--seed-primary) 6%, white);
+    --sidebar-border: var(--border);
+    --sidebar-ring: var(--ring);
+}
+
+@keyframes pilot-progress {
+  0% {
+    transform: translateX(-110%);
+  }
+  100% {
+    transform: translateX(320%);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+  html {
+    @apply font-sans;
+    }
+}
