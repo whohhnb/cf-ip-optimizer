@@ -188,6 +188,12 @@ export const api = {
 
   me: () => http<{ user: User; allowRegistration: boolean }>("/api/auth/me"),
 
+  changePassword: (oldPassword: string, newPassword: string) =>
+    http<{ token: string }>("/api/auth/password", {
+      method: "PUT",
+      body: JSON.stringify({ oldPassword, newPassword }),
+    }),
+
   overview: () => http<Overview>("/api/overview"),
 
   trend: (domainId?: number) =>

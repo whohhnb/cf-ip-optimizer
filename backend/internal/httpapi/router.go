@@ -66,6 +66,7 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/auth/register", s.handleRegister)
 	m.HandleFunc("POST /api/auth/login", s.handleLogin)
 	m.HandleFunc("POST /api/auth/logout", s.handleLogout)
+	m.HandleFunc("PUT /api/auth/password", s.withAuth(s.handleChangePassword))
 	m.HandleFunc("GET /api/auth/me", s.withAuth(s.handleMe))
 
 	m.HandleFunc("GET /api/overview", s.withAuth(s.handleOverview))
@@ -208,6 +209,11 @@ func (s *Server) withAuth(next http.HandlerFunc) http.HandlerFunc {
 		u, err := s.st.UserByID(claims.Sub)
 		if err != nil {
 			fail(w, http.StatusUnauthorized, "账号不存在")
+			return
+		}
+		// token 版本对不上说明改过密码或已登出，旧 token 一律作废
+		if claims.Ver != u.TokenVersion {
+			fail(w, http.StatusUnauthorized, "登录已失效，请重新登录")
 			return
 		}
 		ctx := context.WithValue(r.Context(), ctxUser, u)

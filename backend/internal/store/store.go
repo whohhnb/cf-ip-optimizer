@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS users (
   email         TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
   role          TEXT NOT NULL DEFAULT 'user',
+  token_version INTEGER NOT NULL DEFAULT 0,
   created_at    INTEGER NOT NULL
 );
 
@@ -150,6 +151,16 @@ func (s *Store) migrate() error {
 	if err != nil {
 		return err
 	}
+	// 老库补 token_version 列（新增于 v1.2 的改密踢下线）
+	ucols, err := s.columns("users")
+	if err != nil {
+		return err
+	}
+	if !ucols["token_version"] {
+		if _, err := s.db.Exec(`ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("migrate users: %w", err)
+		}
+	}
 	if !cols["credentials"] {
 		for _, stmt := range []string{
 			`ALTER TABLE dns_accounts ADD COLUMN meta TEXT NOT NULL DEFAULT ''`,
@@ -227,10 +238,10 @@ func (s *Store) CreateUserAutoRole(email, hash string) (*model.User, error) {
 }
 
 func (s *Store) UserByEmail(email string) (*model.User, error) {
-	row := s.db.QueryRow(`SELECT id,email,password_hash,role,created_at FROM users WHERE email=?`, email)
+	row := s.db.QueryRow(`SELECT id,email,password_hash,role,token_version,created_at FROM users WHERE email=?`, email)
 	var u model.User
 	var created int64
-	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &created); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.TokenVersion, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -241,10 +252,10 @@ func (s *Store) UserByEmail(email string) (*model.User, error) {
 }
 
 func (s *Store) UserByID(id int64) (*model.User, error) {
-	row := s.db.QueryRow(`SELECT id,email,password_hash,role,created_at FROM users WHERE id=?`, id)
+	row := s.db.QueryRow(`SELECT id,email,password_hash,role,token_version,created_at FROM users WHERE id=?`, id)
 	var u model.User
 	var created int64
-	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &created); err != nil {
+	if err := row.Scan(&u.ID, &u.Email, &u.PasswordHash, &u.Role, &u.TokenVersion, &created); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrNotFound
 		}
@@ -287,6 +298,18 @@ func (s *Store) DeleteUser(id int64) error {
 func (s *Store) SetPassword(userID int64, hash string) error {
 	_, err := s.db.Exec(`UPDATE users SET password_hash=? WHERE id=?`, hash, userID)
 	return err
+}
+
+// BumpTokenVersion 让该用户所有已签发的 JWT 立即失效，返回新的版本号
+func (s *Store) BumpTokenVersion(userID int64) (int64, error) {
+	if _, err := s.db.Exec(`UPDATE users SET token_version = token_version + 1 WHERE id=?`, userID); err != nil {
+		return 0, err
+	}
+	var v int64
+	if err := s.db.QueryRow(`SELECT token_version FROM users WHERE id=?`, userID).Scan(&v); err != nil {
+		return 0, err
+	}
+	return v, nil
 }
 
 // ---------- dns accounts ----------

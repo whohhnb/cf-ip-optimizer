@@ -4,10 +4,13 @@ import "time"
 
 // User is a SaaS tenant account. The very first registered user becomes admin.
 type User struct {
-	ID           int64     `json:"id"`
-	Email        string    `json:"email"`
-	PasswordHash string    `json:"-"`
-	Role         string    `json:"role"` // admin | user
+	ID           int64  `json:"id"`
+	Email        string `json:"email"`
+	PasswordHash string `json:"-"`
+	Role         string `json:"role"` // admin | user
+	// TokenVersion 每次改密码或登出时 +1，用来让已签发的 JWT 立即失效。
+	// 无状态 JWT 没有吊销机制，只能靠版本号做「改密即踢下线」。
+	TokenVersion int64     `json:"-"`
 	CreatedAt    time.Time `json:"createdAt"`
 }
 

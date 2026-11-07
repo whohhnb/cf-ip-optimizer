@@ -5,13 +5,25 @@ import {
   LayoutDashboard,
   LogOut,
   RefreshCw,
-  ScrollText,
   Navigation,
+  ScrollText,
   Settings,
+  UserRound,
 } from "lucide-react"
+import { useState } from "react"
 import { NavLink, useLocation, useNavigate } from "react-router-dom"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { ChangePasswordDialog } from "@/components/change-password-dialog"
 import {
   Sidebar,
   SidebarContent,
@@ -42,6 +54,7 @@ export function AppSidebar() {
   const { user, logout } = useAuth()
   const { setOpenMobile } = useSidebar()
   const navigate = useNavigate()
+  const [pwOpen, setPwOpen] = useState(false)
 
   return (
     <Sidebar collapsible="icon">
@@ -123,15 +136,34 @@ export function AppSidebar() {
             <ThemeSwitcher asMenuButton />
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton
-              tooltip="退出登录"
-              onClick={() => {
-                void logout().then(() => navigate("/login"))
-              }}
-            >
-              <LogOut />
-              <span className="truncate">{user?.email ?? "未登录"}</span>
-            </SidebarMenuButton>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<SidebarMenuButton tooltip={user?.email ?? "账号"} />}
+              >
+                <UserRound />
+                <span className="truncate">{user?.email ?? "未登录"}</span>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="right" align="end" className="w-56">
+                <DropdownMenuGroup>
+                  <DropdownMenuLabel className="truncate text-xs font-normal text-muted-foreground">
+                    {user?.email}
+                  </DropdownMenuLabel>
+                </DropdownMenuGroup>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => setPwOpen(true)}>
+                  <KeyRound />
+                  修改密码
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onClick={() => {
+                    void logout().then(() => navigate("/login"))
+                  }}
+                >
+                  <LogOut />
+                  退出登录
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </SidebarMenuItem>
         </SidebarMenu>
         <Button
@@ -144,6 +176,7 @@ export function AppSidebar() {
         </Button>
       </SidebarFooter>
       <SidebarRail />
+      <ChangePasswordDialog open={pwOpen} onOpenChange={setPwOpen} />
     </Sidebar>
   )
 }
