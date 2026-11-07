@@ -26,10 +26,63 @@ type Service struct {
 
 	mu      sync.Mutex
 	running map[int64]bool
+
+	// 全局扫描并发闸门。单次扫描默认 48 并发连接，若不设总量上限，
+	// 一个用户连建十个域名就能把宿主的连接数和带宽吃满
+	limMu     sync.Mutex
+	limCond   *sync.Cond
+	limActive int
+	limMax    int
 }
 
 func New(st *store.Store, box *cryptox.Box, hub *scanner.Hub) *Service {
-	return &Service{Store: st, Box: box, Hub: hub, running: make(map[int64]bool)}
+	s := &Service{Store: st, Box: box, Hub: hub, running: make(map[int64]bool), limMax: 3}
+	s.limCond = sync.NewCond(&s.limMu)
+	return s
+}
+
+// ApplyRuntimeSettings 把可热更新的设置应用到内存（启动与改设置时调用）
+func (s *Service) ApplyRuntimeSettings() {
+	s.SetMaxConcurrentScans(settingInt(s.Store, "scan_max_concurrent", 3))
+}
+
+// SetMaxConcurrentScans 调整全局扫描并发上限，调大后立刻唤醒排队中的任务
+func (s *Service) SetMaxConcurrentScans(n int) {
+	if n < 1 {
+		n = 1
+	}
+	s.limMu.Lock()
+	s.limMax = n
+	s.limMu.Unlock()
+	s.limCond.Broadcast()
+}
+
+func (s *Service) tryAcquireSlot() bool {
+	s.limMu.Lock()
+	defer s.limMu.Unlock()
+	if s.limActive < s.limMax {
+		s.limActive++
+		return true
+	}
+	return false
+}
+
+func (s *Service) acquireSlot() {
+	s.limMu.Lock()
+	defer s.limMu.Unlock()
+	for s.limActive >= s.limMax {
+		s.limCond.Wait()
+	}
+	s.limActive++
+}
+
+func (s *Service) releaseSlot() {
+	s.limMu.Lock()
+	if s.limActive > 0 {
+		s.limActive--
+	}
+	s.limMu.Unlock()
+	s.limCond.Broadcast()
 }
 
 func (s *Service) IsRunning(domainID int64) bool {
@@ -113,6 +166,19 @@ func (s *Service) StartScan(ctx context.Context, d *model.Domain, trigger string
 
 	go func() {
 		defer s.markRunning(d.ID, false)
+
+		if !s.tryAcquireSlot() {
+			// 全局名额已满：先告诉前端在排队，再阻塞等空位，
+			// 不能直接拒绝——否则调度器一到点就报错，用户永远排不上
+			_ = s.Store.UpdateJobProgress(job.ID, 0, 0, 0, "排队中")
+			s.Hub.Publish(scanner.Event{
+				Type: "progress", JobID: job.ID, DomainID: d.ID,
+				Stage: "排队中", Msg: "前面还有扫描任务，排队等待空位",
+			})
+			s.acquireSlot()
+		}
+		defer s.releaseSlot()
+
 		s.execute(job, *d, opts)
 	}()
 	return job, nil
