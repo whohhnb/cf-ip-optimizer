@@ -1,6 +1,6 @@
 name: release
 
-# 打 tag 即发布：先跑校验，再交叉编译五个平台，最后建 Release 并推多架构镜像。
+# 打 tag 即发布：先跑校验，再交叉编译五个平台，最后建 Release。
 # 手动触发（workflow_dispatch）只构建产物、不发版，方便验证 workflow 本身。
 on:
   push:
@@ -158,52 +158,6 @@ jobs:
             edgepilot-*.tar.gz
             edgepilot-*.zip
           retention-days: 1
-
-  docker:
-    name: 推送镜像
-    needs: [build]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: 解析 tag
-        id: meta
-        run: |
-          tag="${GITHUB_REF_NAME//\//-}"
-          ver="${GITHUB_REF_NAME#v}"
-          if [ -z "$tag" ] || [ "$GITHUB_REF_TYPE" != "tag" ]; then
-            tag="dev"
-            ver="dev"
-          fi
-          echo "tag=$tag" >> "$GITHUB_OUTPUT"
-          echo "ver=$ver" >> "$GITHUB_OUTPUT"
-
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # 镜像名统一小写：ghcr 不接受含大写的仓库路径
-      - name: 构建并推送
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          build-args: |
-            VERSION=${{ steps.meta.outputs.ver }}
-          tags: |
-            ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.tag }}
-            ghcr.io/${{ github.repository }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
 
   release:
     name: 发布

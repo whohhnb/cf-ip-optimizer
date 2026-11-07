@@ -133,12 +133,6 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-也可以直接用 CI 推送的镜像，省掉本地构建：
-
-```bash
-docker pull ghcr.io/whohhnb/cf-ip-optimizer:latest
-```
-
 Caddy 会自动申请 Let's Encrypt 证书并反代，`https://你的面板域名` 打开即可。首次访问会引导你注册管理员账号。
 
 ![初始化](docs/setup.png)
@@ -189,8 +183,7 @@ git push origin v1.2.0
 1. **web** — 构建前端并上传为 artifact（只跑一次，五个平台共用）
 2. **verify** — `go vet` + `go test`，任一失败则整个发布中止
 3. **build** — 矩阵交叉编译 5 个平台，`-X` 注入 tag 作为版本号，打包成 tar.gz / zip
-4. **docker** — 构建并推送多架构镜像到 `ghcr.io/whohhnb/cf-ip-optimizer`
-5. **release** — 汇总产物、生成 SHA256、用 GitHub 自动生成的 release notes 发版
+4. **release** — 汇总产物、生成 SHA256、用 GitHub 自动生成的 release notes 发版
 
 手动触发（Actions → release → Run workflow）只构建产物不发版，用来验证 workflow 本身。
 
