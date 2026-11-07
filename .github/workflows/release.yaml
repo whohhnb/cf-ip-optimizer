@@ -1,0 +1,237 @@
+name: release
+
+# 打 tag 即发布：先跑校验，再交叉编译五个平台，最后建 Release 并推多架构镜像。
+# 手动触发（workflow_dispatch）只构建产物、不发版，方便验证 workflow 本身。
+on:
+  push:
+    tags:
+      - "*"
+  workflow_dispatch:
+
+# 同一 tag 只允许一个发布流程在跑，避免并发上传打架；已排队的不取消。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  # 前端先构建一次，产物作为 artifact 传给后续所有作业。
+  # 这样矩阵里的 5 个平台不用各自 npm ci（每个约 40s + 200MB 缓存）。
+  web:
+    name: 构建前端
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: 安装依赖
+        working-directory: web
+        run: npm ci
+
+      # vite 的 outDir 指向 ../backend/web/dist，后端用 go:embed 打进二进制。
+      # tsc -b 会顺带做类型检查，构建失败即校验失败。
+      - name: 构建
+        working-directory: web
+        run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: backend/web/dist
+          retention-days: 1
+
+  verify:
+    name: 校验
+    needs: [web]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      # go:embed all:dist 要求目录存在，否则编译直接失败
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: backend/web/dist
+
+      - name: go vet
+        working-directory: backend
+        run: go vet ./...
+
+      - name: go test
+        working-directory: backend
+        run: go test ./...
+
+  build:
+    name: 构建 ${{ matrix.goos }}-${{ matrix.goarch }}
+    needs: [web, verify]
+    runs-on: ubuntu-latest
+    strategy:
+      # 单个平台失败不掐掉其他平台，便于一次看清全部问题
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: backend/web/dist
+
+      - name: 解析 tag
+        id: meta
+        run: |
+          # tag 里可能有 /（如 release/1.2.3），文件名里必须换成 -
+          tag="${GITHUB_REF_NAME//\//-}"
+          ver="${GITHUB_REF_NAME#v}"
+          # 手动触发没有 tag，用短 SHA 兜底
+          if [ -z "$tag" ] || [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            tag="dev-$(echo "$GITHUB_SHA" | cut -c1-7)"
+            ver="dev"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "ver=$ver" >> "$GITHUB_OUTPUT"
+          echo "发布版本：$tag（$ver）"
+
+      # CGO_ENABLED=0 让交叉编译无需目标平台工具链（SQLite 用纯 Go 实现）
+      - name: 编译
+        working-directory: backend
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          VER: ${{ steps.meta.outputs.ver }}
+        run: |
+          set -euo pipefail
+          mkdir -p ../pkg
+          bin=edgepilot
+          [ "$GOOS" = "windows" ] && bin=edgepilot.exe
+          go build -trimpath -buildvcs=false \
+            -ldflags "-s -w -X edgepilot/internal/httpapi.Version=${VER}" \
+            -o "../pkg/${bin}" .
+          ls -lh "../pkg/${bin}"
+
+      - name: 打包
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          set -euo pipefail
+          # 二进制自带前端与静态资源，压缩包里附带部署所需的最小文件集
+          cp README.md LICENSE THIRD_PARTY_NOTICES.md pkg/
+          cp deploy/Caddyfile deploy/edgepilot.service pkg/
+          name="edgepilot-${TAG}-${GOOS}-${GOARCH}"
+          if [ "$GOOS" = "windows" ]; then
+            (cd pkg && zip -qr "../${name}.zip" .)
+          else
+            tar -czf "${name}.tar.gz" -C pkg .
+          fi
+          ls -lh "${name}".*
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            edgepilot-*.tar.gz
+            edgepilot-*.zip
+          retention-days: 1
+
+  docker:
+    name: 推送镜像
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 解析 tag
+        id: meta
+        run: |
+          tag="${GITHUB_REF_NAME//\//-}"
+          ver="${GITHUB_REF_NAME#v}"
+          if [ -z "$tag" ] || [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            tag="dev"
+            ver="dev"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "ver=$ver" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # 镜像名统一小写：ghcr 不接受含大写的仓库路径
+      - name: 构建并推送
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            VERSION=${{ steps.meta.outputs.ver }}
+          tags: |
+            ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.tag }}
+            ghcr.io/${{ github.repository }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: 发布
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: dist-*
+          merge-multiple: true
+
+      # 校验和让下载方能确认压缩包没被篡改
+      - name: 生成 SHA256
+        working-directory: artifacts
+        run: |
+          sha256sum edgepilot-* > checksums.txt
+          cat checksums.txt
+
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          name: EdgePilot ${{ github.ref_name }}
+          generate_release_notes: true
+          # 带 - 的 tag（如 v1.2.0-rc1）自动标为预发布
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          files: |
+            artifacts/edgepilot-*
+            artifacts/checksums.txt

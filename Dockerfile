@@ -17,7 +17,11 @@ COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
 COPY --from=web /app/backend/web/dist ./web/dist
-RUN go build -trimpath -ldflags "-s -w" -o /out/edgepilot .
+# 版本号由 CI 传入（release workflow 的 build-arg），本地构建默认 dev
+ARG VERSION=dev
+RUN go build -trimpath \
+    -ldflags "-s -w -X edgepilot/internal/httpapi.Version=${VERSION}" \
+    -o /out/edgepilot .
 
 # ---- 3. 运行镜像 ----
 FROM alpine:3.21

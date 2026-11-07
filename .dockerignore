@@ -1,0 +1,23 @@
+# 构建上下文瘦身：node_modules 与已构建产物都在镜像内重新生成，
+# 不排除的话 docker build 每次要上传 300MB+ 上下文，CI 上尤其慢。
+**/node_modules
+**/dist
+backend/web/dist
+
+# 运行时数据与本地构建产物
+data
+*.exe
+*.db
+*.db-wal
+*.db-shm
+
+# 仓库元数据
+.git
+.github
+docs
+web/shots
+
+# 本地环境
+.env
+.vscode
+.idea

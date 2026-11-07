@@ -9,7 +9,9 @@ import (
 	"edgepilot/internal/logx"
 )
 
-const Version = "1.1.0"
+// Version is overridden at build time with -ldflags "-X ...Version=vX.Y.Z"
+// so release binaries report the tag they were cut from.
+var Version = "1.1.0"
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ok(w, map[string]any{"status": "ok", "version": Version, "time": nowISO()})
