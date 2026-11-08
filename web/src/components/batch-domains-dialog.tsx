@@ -96,16 +96,17 @@ export function BatchDomainsDialog({
   // 特定线路必须有同线路的在线探针：拿本机去测「联通」，测出来的不是联通的视角。
   // 探针的 line 是用户填的中文标签，线路的 value 是服务商原生值（阿里云是
   // telecom），所以按 label 比对
-  const probeFor = (line: { value: string; label: string }): { id: number; name: string } | null => {
-    const p = probes.find((x) => x.line === line.label && x.online)
-    if (p) return { id: p.id, name: p.name }
-    if (line.value === defaultLine) return { id: 0, name: "本机扫描" }
+  const probesFor = (line: { value: string; label: string }) => {
+    const list = probes.filter((x) => x.line === line.label && x.online)
+    if (list.length > 0) return list
+    // 兜底线路允许用本机扫描；特定线路不行，那是错误的测量视角
+    if (line.value === defaultLine) return []
     return null
   }
 
   // 只统计真正能创建的：勾了但没探针的不算
   const chosen = useMemo(
-    () => lines.filter((l) => picked[l.value] && probeFor(l)),
+    () => lines.filter((l) => picked[l.value] && probesFor(l) !== null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [lines, picked, probes],
   )
@@ -129,14 +130,14 @@ export function BatchDomainsDialog({
     const failed: string[] = []
     let ok = 0
     for (const l of ready) {
-      const probe = probeFor(l)
+      const list = probesFor(l) ?? []
       try {
         await api.createDomain({
           accountId: Number(form.accountId),
           rootDomain: form.rootDomain.trim(),
           subDomain: form.subDomain.trim() || "@",
           recordLine: l.value,
-          probeId: probe?.id ?? 0,
+          probeIds: list.map((p) => p.id),
           ttl: Number(form.ttl),
           slots: Number(form.slots),
           intervalMin: Number(form.intervalMin),
@@ -265,16 +266,18 @@ export function BatchDomainsDialog({
               <Label>要创建的线路</Label>
               <div className="divide-y rounded-lg border">
                 {lines.map((l) => {
-                  const probe = probeFor(l)
+                  const list = probesFor(l)
                   return (
                     <div key={l.value} className="flex items-center justify-between gap-3 p-3">
                       <div className="min-w-0">
                         <p className="text-sm font-medium">{l.label}</p>
                         <p className="truncate text-xs text-muted-foreground">
-                          {probe ? (
-                            <>探针：{probe.name}</>
-                          ) : (
+                          {list === null ? (
                             <span className="text-destructive">没有在线探针，无法创建</span>
+                          ) : list.length === 0 ? (
+                            <>探针：本机扫描</>
+                          ) : (
+                            <>探针：{list.map((p) => p.name).join("、")}</>
                           )}
                         </p>
                       </div>
@@ -285,8 +288,8 @@ export function BatchDomainsDialog({
                           </Badge>
                         ) : null}
                         <Switch
-                          checked={!!picked[l.value] && !!probe}
-                          disabled={!probe}
+                          checked={!!picked[l.value] && list !== null}
+                          disabled={list === null}
                           onCheckedChange={(v) =>
                             setPicked((s) => ({ ...s, [l.value]: Boolean(v) }))
                           }

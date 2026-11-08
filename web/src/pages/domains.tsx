@@ -50,6 +50,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { BatchDomainsDialog } from "@/components/batch-domains-dialog"
+import { Checkbox } from "@/components/ui/checkbox"
 import { RotationHint } from "@/components/rotation-hint"
 import {
   api,
@@ -66,7 +67,7 @@ type FormState = {
   subDomain: string
   recordLine: string
   coloAllow: string
-  probeId: string
+  probeIds: number[]
   ttl: string
   slots: string
   intervalMin: string
@@ -80,7 +81,7 @@ const emptyForm: FormState = {
   subDomain: "@",
   recordLine: "默认",
   coloAllow: "",
-  probeId: "0",
+  probeIds: [],
   ttl: "600",
   slots: "2",
   intervalMin: "60",
@@ -165,10 +166,18 @@ export default function DomainsPage() {
     ? form.recordLine
     : defaultLine
   const currentLineLabel = lineOptions.find((l) => l.value === lineValue)?.label ?? "默认"
-  const selectedProbe = probes.find((p) => String(p.id) === form.probeId)
+  const selectedProbes = probes.filter((p) => form.probeIds.includes(p.id))
   // 探针的线路是中文标签，线路的值是服务商原生值，按标签比
-  const probeMismatch =
-    !!selectedProbe && currentLineLabel !== "默认" && selectedProbe.line !== currentLineLabel
+  const mismatched = selectedProbes.filter(
+    (p) => currentLineLabel !== "默认" && p.line !== currentLineLabel,
+  )
+
+  function toggleProbe(id: number, on: boolean) {
+    setForm((s) => ({
+      ...s,
+      probeIds: on ? [...s.probeIds, id] : s.probeIds.filter((x) => x !== id),
+    }))
+  }
   // keep the slot selector inside what the chosen vendor can actually hold
   const slotValue = String(Math.min(Math.max(Number(form.slots) || 1, 1), maxSlots))
 
@@ -186,7 +195,7 @@ export default function DomainsPage() {
       subDomain: d.subDomain,
       recordLine: d.recordLine || "默认",
       coloAllow: d.coloAllow || "",
-      probeId: String(d.probeId ?? 0),
+      probeIds: d.probeIds ?? (d.probeId ? [d.probeId] : []),
       ttl: String(d.ttl),
       slots: String(d.slots),
       intervalMin: String(d.intervalMin),
@@ -213,7 +222,7 @@ export default function DomainsPage() {
       enabled: form.enabled,
       recordLine: lineValue,
       coloAllow: form.coloAllow.trim(),
-      probeId: Number(form.probeId || 0),
+      probeIds: form.probeIds,
     }
     try {
       if (editing) {
@@ -481,42 +490,46 @@ export default function DomainsPage() {
                 </p>
               </div>
               <div className="grid gap-2">
-                <Label>扫描探针</Label>
-                <Select
-                  value={form.probeId}
-                  items={{
-                    "0": "本机扫描",
-                    ...Object.fromEntries(
-                      probes.map((p) => [
-                        String(p.id),
-                        `${p.name} · ${p.line}${p.online ? "" : "（离线）"}`,
-                      ]),
-                    ),
-                  }}
-                  onValueChange={(v) => setForm((s) => ({ ...s, probeId: String(v ?? "0") }))}
-                >
-                  <SelectTrigger className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="0">本机扫描（面板所在机器）</SelectItem>
-                    {probes.map((p) => (
-                      <SelectItem key={p.id} value={String(p.id)}>
-                        {p.name} · {p.line}
-                        {p.online ? "" : "（离线）"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {probeMismatch ? (
+                <Label>扫描探针（可多选）</Label>
+                <div className="max-h-44 divide-y overflow-y-auto rounded-lg border">
+                  <label className="flex cursor-pointer items-start gap-3 p-2.5">
+                    <Checkbox
+                      className="mt-0.5"
+                      checked={form.probeIds.length === 0}
+                      onCheckedChange={() => setForm((s) => ({ ...s, probeIds: [] }))}
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm">本机扫描</p>
+                      <p className="text-xs text-muted-foreground">
+                        用面板所在机器的网络视角，不绑定探针
+                      </p>
+                    </div>
+                  </label>
+                  {probes.map((p) => (
+                    <label key={p.id} className="flex cursor-pointer items-start gap-3 p-2.5">
+                      <Checkbox
+                        className="mt-0.5"
+                        checked={form.probeIds.includes(p.id)}
+                        onCheckedChange={(v) => toggleProbe(p.id, Boolean(v))}
+                      />
+                      <div className="min-w-0">
+                        <p className="truncate text-sm">{p.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {p.line} · {p.online ? "在线" : "离线，扫描会直接报错"}
+                        </p>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  选多个时按「最差值」聚合：一个 IP 只要在任一探针上表现差就会被淘汰，宁可选一个各处都稳的
+                </p>
+                {mismatched.length > 0 ? (
                   <p className="text-xs text-destructive">
-                    该探针在「{selectedProbe?.line}」，与所选「{currentLineLabel}」线路不一致，测出来的不是这条线路的视角
+                    {mismatched.map((p) => `「${p.name}」在${p.line}`).join("、")}
+                    ，与所选「{currentLineLabel}」线路不一致，测出来的不是这条线路的视角
                   </p>
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    选探针才会得到该线路视角的结果；探针离线时直接报错，不会退回本机
-                  </p>
-                )}
+                ) : null}
               </div>
             </div>
 

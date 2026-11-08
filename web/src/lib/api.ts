@@ -65,6 +65,8 @@ export type Domain = {
   recordLine: string
   /** per-line colo whitelist, empty = follow the system setting */
   coloAllow: string
+  /** agents scanning for this line; empty = scan locally */
+  probeIds: number[]
   probeId: number
   ttl: number
   slots: number
