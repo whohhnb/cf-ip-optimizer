@@ -8,7 +8,6 @@ import {
   Globe2,
   Loader2,
   Play,
-  RefreshCw,
   ServerCog,
   Timer,
 } from "lucide-react"
@@ -38,6 +37,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { LiveRefresh } from "@/components/live-refresh"
+import { usePoll } from "@/lib/use-poll"
 import { api, type DomainRow, type LogEntry, type Overview, type TrendPoint } from "@/lib/api"
 
 const chartConfig = {
@@ -109,9 +110,10 @@ export default function DashboardPage() {
   const [domains, setDomains] = useState<DomainRow[]>([])
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [loading, setLoading] = useState(true)
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
   const [busyId, setBusyId] = useState<number | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     try {
       const [ov, tr, dm, lg] = await Promise.all([
         api.overview(),
@@ -124,17 +126,19 @@ export default function DashboardPage() {
       setDomains(dm.domains ?? [])
       setLogs(lg.logs ?? [])
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "加载失败")
+      if (!silent) toast.error(err instanceof Error ? err.message : "加载失败")
     } finally {
       setLoading(false)
+      setUpdatedAt(Date.now())
     }
   }, [])
 
   useEffect(() => {
     void load()
-    const timer = window.setInterval(() => void load(), 15000)
-    return () => window.clearInterval(timer)
   }, [load])
+
+  // 扫描进行中时指标卡和域名表要跟着动，8 秒一次足够，且只在页面可见时跑
+  usePoll(() => load(true), 8000)
 
   async function scan(id: number) {
     setBusyId(id)
@@ -167,17 +171,23 @@ export default function DashboardPage() {
             实时掌握各域名的优选 IP 与解析下发状态
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => void load()}>
-          <RefreshCw />
-          刷新
-        </Button>
+        <LiveRefresh updatedAt={updatedAt} onRefresh={() => void load()} />
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <Metric
           title="调度域名"
           value={overview?.domains ?? 0}
-          hint={`${overview?.healthy ?? 0} 个健康 · ${overview?.scanning ?? 0} 个扫描中`}
+          hint={(() => {
+            const total = overview?.domains ?? 0
+            const healthy = overview?.healthy ?? 0
+            const scanning = overview?.scanning ?? 0
+            const broken = Math.max(0, total - healthy - scanning)
+            const parts = [`${healthy} 个健康`]
+            if (broken > 0) parts.push(`${broken} 个异常`)
+            parts.push(`${scanning} 个扫描中`)
+            return parts.join(" · ")
+          })()}
           icon={Globe2}
           loading={loading}
         />
@@ -254,7 +264,7 @@ export default function DashboardPage() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid items-start gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle className="text-base">域名调度</CardTitle>

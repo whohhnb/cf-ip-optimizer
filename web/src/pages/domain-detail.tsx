@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import {
+  AlertTriangle,
   ArrowLeft,
   CloudDownload,
+  RefreshCw,
   Download,
   Loader2,
-  RefreshCw,
   Rocket,
   Signal,
   Timer,
   Wifi,
 } from "lucide-react"
 import { toast } from "sonner"
+import { LiveRefresh } from "@/components/live-refresh"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -65,6 +68,7 @@ export default function DomainDetailPage() {
   const [records, setRecords] = useState<LiveRecord[]>([])
   const [recordsError, setRecordsError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
   const [scanning, setScanning] = useState(false)
   const [progress, setProgress] = useState<ScanEvent | null>(null)
 
@@ -99,6 +103,7 @@ export default function DomainDetailPage() {
       toast.error(err instanceof Error ? err.message : "加载失败")
     } finally {
       setLoading(false)
+      setUpdatedAt(Date.now())
     }
   }, [domainId])
 
@@ -247,12 +252,16 @@ export default function DomainDetailPage() {
             {domain.slots} 条 A 记录 · TTL {domain.ttl}s · 每 {domain.intervalMin} 分钟扫描 ·{" "}
             {domain.autoPush ? "自动下发" : "手动下发"}
           </p>
+          {domain.status === "error" && domain.statusMsg ? (
+            <Alert variant="destructive" className="mt-1">
+              <AlertTriangle />
+              <AlertTitle>最近一次执行失败</AlertTitle>
+              <AlertDescription>{domain.statusMsg}</AlertDescription>
+            </Alert>
+          ) : null}
         </div>
         <div className="flex flex-wrap gap-2">
-          <Button variant="outline" onClick={() => void load()}>
-            <RefreshCw />
-            刷新
-          </Button>
+          <LiveRefresh updatedAt={updatedAt} onRefresh={() => void load()} />
           <Button variant="outline" onClick={() => void pushNow()}>
             <CloudDownload />
             立即下发
@@ -371,7 +380,7 @@ export default function DomainDetailPage() {
               </div>
             ))
           )}
-          {domain.lastPushAt ? (
+          {domain.lastPushAt && detail.managed.length > 0 ? (
             <span className="text-xs text-muted-foreground">
               最近下发 {new Date(domain.lastPushAt).toLocaleString("zh-CN")}
             </span>
@@ -391,7 +400,8 @@ export default function DomainDetailPage() {
             <CardHeader>
               <CardTitle className="text-base">节点排名</CardTitle>
               <CardDescription>
-                综合延迟 45% · 下载 30% · 丢包 25% 加权评分
+                综合延迟 45% · 下载 30% · 丢包 25% 加权评分。只对延迟最优的前几个节点测速，
+                没测的显示 —；机房要等 HTTP 校验通过才有
               </CardDescription>
               {detail.job ? (
                 <CardAction>
@@ -421,8 +431,8 @@ export default function DomainDetailPage() {
                       <TableHead className="hidden text-right lg:table-cell">抖动</TableHead>
                       <TableHead className="hidden text-right lg:table-cell">丢包</TableHead>
                       <TableHead className="hidden text-right lg:table-cell">HTTP</TableHead>
-                      <TableHead className="hidden text-right lg:table-cell">下载</TableHead>
-                      <TableHead className="hidden lg:table-cell">机房</TableHead>
+                      <TableHead className="hidden text-right md:table-cell">下载</TableHead>
+                      <TableHead className="hidden md:table-cell">机房</TableHead>
                       <TableHead className="text-right">评分</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -445,10 +455,10 @@ export default function DomainDetailPage() {
                         <TableCell className="hidden text-right tabular-nums text-muted-foreground lg:table-cell">
                           {r.httpRtt > 0 ? r.httpRtt.toFixed(0) : "—"}
                         </TableCell>
-                        <TableCell className="hidden text-right tabular-nums lg:table-cell">
+                        <TableCell className="hidden text-right tabular-nums md:table-cell">
                           {r.speed > 0 ? `${r.speed.toFixed(1)} Mbps` : "—"}
                         </TableCell>
-                        <TableCell className="hidden lg:table-cell">
+                        <TableCell className="hidden md:table-cell">
                           {r.colo ? <Badge variant="outline">{r.colo}</Badge> : "—"}
                         </TableCell>
                         <TableCell className="text-right font-medium tabular-nums">

@@ -50,6 +50,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { BatchDomainsDialog } from "@/components/batch-domains-dialog"
+import { LiveRefresh } from "@/components/live-refresh"
+import { usePoll } from "@/lib/use-poll"
 import { Checkbox } from "@/components/ui/checkbox"
 import { RotationHint } from "@/components/rotation-hint"
 import {
@@ -89,6 +91,11 @@ const emptyForm: FormState = {
   enabled: true,
 }
 
+// 一个域名可以绑多个探针，列表里要把它们都列出来，不能只显示第一个
+function probeNames(ids: number[] | undefined, probes: Probe[]) {
+  return (ids ?? []).map((id) => probes.find((p) => p.id === id)?.name ?? "已删除")
+}
+
 function lineLabel(value: string, lines?: { value: string; label: string }[]) {
   if (!value) return "默认"
   if (!lines || lines.length === 0) {
@@ -117,6 +124,7 @@ export default function DomainsPage() {
   const [providers, setProviders] = useState<ProviderDescriptor[]>([])
   const [probes, setProbes] = useState<Probe[]>([])
   const [loading, setLoading] = useState(true)
+  const [updatedAt, setUpdatedAt] = useState<number | null>(null)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Domain | null>(null)
   const [form, setForm] = useState<FormState>(emptyForm)
@@ -124,7 +132,7 @@ export default function DomainsPage() {
   const [removing, setRemoving] = useState<Domain | null>(null)
   const [batchOpen, setBatchOpen] = useState(false)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (silent = false) => {
     try {
       const [dm, ac, pv, pb] = await Promise.all([
         api.domains(),
@@ -137,15 +145,20 @@ export default function DomainsPage() {
       setProviders(pv.providers ?? [])
       setProbes(pb.probes ?? [])
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "加载失败")
+      // 后台轮询失败不打扰用户，下一次自己会补上
+      if (!silent) toast.error(err instanceof Error ? err.message : "加载失败")
     } finally {
       setLoading(false)
+      setUpdatedAt(Date.now())
     }
   }, [])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  // 扫描进度与下发结果都靠这一条刷新到界面上
+  usePoll(() => load(true), 5000)
 
   // while a first scan is running, refresh so the status chip stays truthful
   const scanning = rows.some((r) => r.running || r.domain.status === "scanning")
@@ -277,7 +290,8 @@ export default function DomainsPage() {
             为每个域名维护最多 2 条 A 记录，自动指向评分最高的优选 IP
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <LiveRefresh updatedAt={updatedAt} onRefresh={() => void load()} />
           <Button variant="outline" onClick={() => setBatchOpen(true)}>
             <ListPlus />
             按线路批量添加
@@ -329,37 +343,47 @@ export default function DomainsPage() {
               </TableHeader>
               <TableBody>
                 {rows.map(({ domain, full, running, provider }) => (
-                  <TableRow key={domain.id}>
+                  <TableRow key={domain.id} className="align-top">
                     <TableCell>
-                      <div className="flex flex-wrap items-center gap-2">
+                      {/* 名字和根域名贴在一起，徽章单独一行：窄屏下徽章会折成两三行，
+                          夹在中间会把根域名挤到很远的地方，读起来是断的 */}
+                      <div className="flex flex-col gap-1">
                         <Link
                           to={`/domains/${domain.id}`}
                           className="font-medium hover:underline max-sm:inline-block max-sm:py-1"
                         >
                           {full}
                         </Link>
-                        <Badge
-                          variant="outline"
-                          className="text-[10px] font-normal text-muted-foreground"
-                        >
-                          {provider.label}
-                        </Badge>
-                        {lineLabel(domain.recordLine, provider.lines) !== "默认" ? (
-                          <Badge variant="secondary" className="text-[10px] font-normal">
-                            {lineLabel(domain.recordLine, provider.lines)}
+                        <div className="text-xs text-muted-foreground">{domain.rootDomain}</div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <Badge
+                            variant="outline"
+                            className="text-[10px] font-normal text-muted-foreground"
+                          >
+                            {provider.label}
                           </Badge>
+                          {lineLabel(domain.recordLine, provider.lines) !== "默认" ? (
+                            <Badge variant="secondary" className="text-[10px] font-normal">
+                              {lineLabel(domain.recordLine, provider.lines)}
+                            </Badge>
+                          ) : null}
+                          {probeNames(domain.probeIds, probes).length > 0 ? (
+                            <Badge variant="outline" className="text-[10px] font-normal">
+                              探针 · {probeNames(domain.probeIds, probes).join("、")}
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <div className="text-xs text-muted-foreground md:hidden">
+                          {domain.slots} 条 A · 每 {domain.intervalMin} 分钟
+                        </div>
+                        {domain.status === "error" && domain.statusMsg ? (
+                          <div
+                            className="line-clamp-2 whitespace-normal break-words text-xs text-destructive"
+                            title={domain.statusMsg}
+                          >
+                            {domain.statusMsg}
+                          </div>
                         ) : null}
-                        {domain.probeId > 0 ? (
-                          <Badge variant="outline" className="text-[10px] font-normal">
-                            探针 · {probes.find((p) => p.id === domain.probeId)?.name ?? "已删除"}
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {domain.rootDomain}
-                      </div>
-                      <div className="text-xs text-muted-foreground md:hidden">
-                        {domain.slots} 条 A · 每 {domain.intervalMin} 分钟
                       </div>
                     </TableCell>
                     <TableCell>{statusBadge(domain.status)}</TableCell>
