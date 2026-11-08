@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS domains (
   root_domain  TEXT NOT NULL,
   sub_domain   TEXT NOT NULL DEFAULT '@',
   record_line  TEXT NOT NULL DEFAULT '默认',
+  colo_allow   TEXT NOT NULL DEFAULT '',
   probe_id     INTEGER NOT NULL DEFAULT 0,
   ttl          INTEGER NOT NULL DEFAULT 600,
   slots        INTEGER NOT NULL DEFAULT 2,
@@ -87,6 +88,7 @@ CREATE TABLE IF NOT EXISTS probes (
   user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   name         TEXT NOT NULL,
   line         TEXT NOT NULL DEFAULT '默认',
+  concurrency  INTEGER NOT NULL DEFAULT 0,
   token_hash   TEXT NOT NULL UNIQUE,
   token_hint   TEXT NOT NULL DEFAULT '',
   version      TEXT NOT NULL DEFAULT '',
@@ -201,6 +203,21 @@ func (s *Store) migrate() error {
 	if !dcols["probe_id"] {
 		if _, err := s.db.Exec(`ALTER TABLE domains ADD COLUMN probe_id INTEGER NOT NULL DEFAULT 0`); err != nil {
 			return fmt.Errorf("migrate domains: %w", err)
+		}
+	}
+	if !dcols["colo_allow"] {
+		if _, err := s.db.Exec(`ALTER TABLE domains ADD COLUMN colo_allow TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("migrate domains colo: %w", err)
+		}
+	}
+
+	pcols, err := s.columns("probes")
+	if err != nil {
+		return err
+	}
+	if !pcols["concurrency"] {
+		if _, err := s.db.Exec(`ALTER TABLE probes ADD COLUMN concurrency INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("migrate probes: %w", err)
 		}
 	}
 

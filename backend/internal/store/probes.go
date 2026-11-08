@@ -13,12 +13,12 @@ import (
 // offline. The agent heartbeats every 30s, so three missed beats is generous.
 const ProbeOnlineWindow = 90 * time.Second
 
-const probeCols = `id,user_id,name,line,token_hint,version,last_ip,last_seen_at,created_at`
+const probeCols = `id,user_id,name,line,concurrency,token_hint,version,last_ip,last_seen_at,created_at`
 
 func scanProbe(sc scanner) (*model.Probe, error) {
 	var p model.Probe
 	var seen, created int64
-	if err := sc.Scan(&p.ID, &p.UserID, &p.Name, &p.Line, &p.TokenHint, &p.Version, &p.LastIP, &seen, &created); err != nil {
+	if err := sc.Scan(&p.ID, &p.UserID, &p.Name, &p.Line, &p.Concurrency, &p.TokenHint, &p.Version, &p.LastIP, &seen, &created); err != nil {
 		return nil, err
 	}
 	if seen > 0 {
@@ -30,10 +30,10 @@ func scanProbe(sc scanner) (*model.Probe, error) {
 	return &p, nil
 }
 
-func (s *Store) CreateProbe(userID int64, name, line, tokenHash, hint string) (*model.Probe, error) {
+func (s *Store) CreateProbe(userID int64, name, line string, concurrency int, tokenHash, hint string) (*model.Probe, error) {
 	nowT := now()
-	res, err := s.db.Exec(`INSERT INTO probes(user_id,name,line,token_hash,token_hint,created_at) VALUES(?,?,?,?,?,?)`,
-		userID, name, line, tokenHash, hint, nowT)
+	res, err := s.db.Exec(`INSERT INTO probes(user_id,name,line,concurrency,token_hash,token_hint,created_at) VALUES(?,?,?,?,?,?,?)`,
+		userID, name, line, concurrency, tokenHash, hint, nowT)
 	if err != nil {
 		return nil, err
 	}
@@ -80,6 +80,20 @@ func (s *Store) ProbeByTokenHash(hash string) (*model.Probe, error) {
 
 // ErrProbeInUse is returned when a probe still has domains bound to it.
 var ErrProbeInUse = errors.New("probe still bound to domains")
+
+// UpdateProbe edits the descriptive fields. The token is immutable: rotating it
+// would silently break a running agent, so the user creates a new probe instead.
+func (s *Store) UpdateProbe(id, userID int64, name, line string, concurrency int) error {
+	res, err := s.db.Exec(`UPDATE probes SET name=?, line=?, concurrency=? WHERE id=? AND user_id=?`,
+		name, line, concurrency, id, userID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
 
 func (s *Store) DeleteProbe(id, userID int64) error {
 	// 用一条语句同时完成「还有域名绑着就不删」，避免先数后删之间

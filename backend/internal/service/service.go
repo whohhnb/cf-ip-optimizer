@@ -136,7 +136,14 @@ func settingBool(st *store.Store, key string, def bool) bool {
 	return b
 }
 
-func (s *Service) ScanOptions(host string) scanner.Options {
+// ScanOptions builds the scan configuration for one domain. Per-domain values
+// win over the system defaults: the best PoP differs by carrier, so a single
+// global whitelist would force everyone onto the intersection.
+func (s *Service) ScanOptions(d *model.Domain) scanner.Options {
+	colo := splitColo(d.ColoAllow)
+	if len(colo) == 0 {
+		colo = splitColo(s.Store.GetSetting("scan_colo_allow", ""))
+	}
 	return scanner.Options{
 		Candidates:  settingInt(s.Store, "scan_candidates", 300),
 		Concurrency: settingInt(s.Store, "scan_concurrency", 48),
@@ -145,12 +152,12 @@ func (s *Service) ScanOptions(host string) scanner.Options {
 		SpeedTop:    settingInt(s.Store, "scan_speed_top", 12),
 		SpeedBytes:  settingInt(s.Store, "scan_speed_bytes", 3<<20),
 		Port:        443,
-		Host:        host,
+		Host:        d.FullName(),
 
 		LatencyMax:  float64(settingInt(s.Store, "scan_latency_max", 0)),
 		SpeedFloor:  float64(settingInt(s.Store, "scan_speed_floor", 0)),
 		SpeedOK:     settingInt(s.Store, "scan_speed_ok", 0),
-		ColoAllow:   splitColo(s.Store.GetSetting("scan_colo_allow", "")),
+		ColoAllow:   colo,
 		NoSpeedTest: s.Store.GetSetting("scan_no_speed", "false") == "true",
 	}
 }
@@ -177,7 +184,7 @@ func (s *Service) StartScan(ctx context.Context, d *model.Domain, trigger string
 	if !s.claim(d.ID) {
 		return nil, errors.New("该域名正在扫描中")
 	}
-	opts := s.ScanOptions(d.FullName())
+	opts := s.ScanOptions(d)
 	// 上轮表现好的地址优先复测：anycast 下重新随机的边际收益极低，
 	// 而一条已验证过的路径价值高得多
 	seeds := opts.Candidates / 5

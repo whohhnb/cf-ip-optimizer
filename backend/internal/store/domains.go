@@ -8,7 +8,7 @@ import (
 	"edgepilot/internal/model"
 )
 
-const domainCols = `id,user_id,account_id,root_domain,sub_domain,record_line,probe_id,ttl,slots,auto_push,interval_min,enabled,status,status_msg,last_scan_at,last_push_at,created_at`
+const domainCols = `id,user_id,account_id,root_domain,sub_domain,record_line,colo_allow,probe_id,ttl,slots,auto_push,interval_min,enabled,status,status_msg,last_scan_at,last_push_at,created_at`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -17,7 +17,7 @@ func scanDomain(sc scanner) (*model.Domain, error) {
 	var autoPush, enabled int
 	var lastScan, lastPush sql.NullInt64
 	var created int64
-	if err := sc.Scan(&d.ID, &d.UserID, &d.AccountID, &d.RootDomain, &d.SubDomain, &d.RecordLine, &d.ProbeID,
+	if err := sc.Scan(&d.ID, &d.UserID, &d.AccountID, &d.RootDomain, &d.SubDomain, &d.RecordLine, &d.ColoAllow, &d.ProbeID,
 		&d.TTL, &d.Slots, &autoPush, &d.IntervalMin, &enabled, &d.Status, &d.StatusMsg,
 		&lastScan, &lastPush, &created); err != nil {
 		return nil, err
@@ -35,6 +35,7 @@ type DomainInput struct {
 	RootDomain  string
 	SubDomain   string
 	RecordLine  string
+	ColoAllow   string
 	ProbeID     int64
 	TTL         int
 	Slots       int
@@ -45,9 +46,9 @@ type DomainInput struct {
 
 func (s *Store) CreateDomain(userID int64, in DomainInput) (*model.Domain, error) {
 	nowT := now()
-	res, err := s.db.Exec(`INSERT INTO domains(user_id,account_id,root_domain,sub_domain,record_line,probe_id,ttl,slots,auto_push,interval_min,enabled,status,created_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,'idle',?)`,
-		userID, in.AccountID, in.RootDomain, in.SubDomain, in.RecordLine, in.ProbeID, in.TTL, in.Slots,
+	res, err := s.db.Exec(`INSERT INTO domains(user_id,account_id,root_domain,sub_domain,record_line,colo_allow,probe_id,ttl,slots,auto_push,interval_min,enabled,status,created_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'idle',?)`,
+		userID, in.AccountID, in.RootDomain, in.SubDomain, in.RecordLine, in.ColoAllow, in.ProbeID, in.TTL, in.Slots,
 		boolInt(in.AutoPush), in.IntervalMin, boolInt(in.Enabled), nowT)
 	if err != nil {
 		return nil, err
@@ -138,8 +139,8 @@ func (s *Store) CountDomainsByProbe(probeID int64) (int, error) {
 }
 
 func (s *Store) UpdateDomain(id, userID int64, in DomainInput) error {
-	_, err := s.db.Exec(`UPDATE domains SET account_id=?,root_domain=?,sub_domain=?,record_line=?,probe_id=?,ttl=?,slots=?,auto_push=?,interval_min=?,enabled=? WHERE id=? AND user_id=?`,
-		in.AccountID, in.RootDomain, in.SubDomain, in.RecordLine, in.ProbeID, in.TTL, in.Slots,
+	_, err := s.db.Exec(`UPDATE domains SET account_id=?,root_domain=?,sub_domain=?,record_line=?,colo_allow=?,probe_id=?,ttl=?,slots=?,auto_push=?,interval_min=?,enabled=? WHERE id=? AND user_id=?`,
+		in.AccountID, in.RootDomain, in.SubDomain, in.RecordLine, in.ColoAllow, in.ProbeID, in.TTL, in.Slots,
 		boolInt(in.AutoPush), in.IntervalMin, boolInt(in.Enabled), id, userID)
 	return err
 }

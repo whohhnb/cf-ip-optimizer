@@ -92,6 +92,16 @@ type ProbeReport struct {
 	Results   []model.ScanResult `json:"results"`
 }
 
+// effectiveConcurrency applies the per-probe cap. A probe value of 0 means
+// "follow the global setting"; a larger value never raises the global limit,
+// because that limit also protects the host's own bandwidth.
+func effectiveConcurrency(global, probe int) int {
+	if probe > 0 && probe < global {
+		return probe
+	}
+	return global
+}
+
 // dispatchToProbe queues a scan for the remote agent bound to this domain.
 // It returns an error instead of silently falling back to a local scan: if the
 // user asked for a 电信 probe and it is offline, a local result would be the
@@ -109,6 +119,9 @@ func (s *Service) dispatchToProbe(d *model.Domain, job *model.ScanJob, opts scan
 		return fmt.Errorf("探针「%s」已离线（%s），请检查探针进程", probe.Name, seen)
 	}
 
+	// 家宽的 NAT 表扛不住服务器的并发，按探针自己的上限收敛
+	opts.Concurrency = effectiveConcurrency(opts.Concurrency, probe.Concurrency)
+
 	body, err := json.Marshal(ProbePayload{Host: d.FullName(), Options: toProbeOptions(opts)})
 	if err != nil {
 		return err
@@ -122,8 +135,8 @@ func (s *Service) dispatchToProbe(d *model.Domain, job *model.ScanJob, opts scan
 		Type: "progress", JobID: job.ID, DomainID: d.ID, Stage: "已派发",
 		Msg: "已派发给探针「" + probe.Name + "」（" + probe.Line + "）",
 	})
-	logx.Infof(d.UserID, d.ID, "%s 派发探针 · %s（%s）· 候选=%d",
-		d.FullName(), probe.Name, probe.Line, opts.Candidates)
+	logx.Infof(d.UserID, d.ID, "%s 派发探针 · %s（%s）· 候选=%d · 并发=%d",
+		d.FullName(), probe.Name, probe.Line, opts.Candidates, opts.Concurrency)
 	return nil
 }
 

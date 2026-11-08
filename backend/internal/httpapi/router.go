@@ -82,6 +82,7 @@ func (s *Server) routes() {
 
 	m.HandleFunc("GET /api/probes", s.withAuth(s.handleListProbes))
 	m.HandleFunc("POST /api/probes", s.withAuth(s.handleCreateProbe))
+	m.HandleFunc("PUT /api/probes/{id}", s.withAuth(s.handleUpdateProbe))
 	m.HandleFunc("DELETE /api/probes/{id}", s.withAuth(s.handleDeleteProbe))
 
 	// 探针端：不走用户 JWT，用每台探针独立的令牌

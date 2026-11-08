@@ -58,8 +58,32 @@ func (s *Server) probeFrom(r *http.Request) (*model.Probe, bool) {
 // ---------- management ----------
 
 type probeInput struct {
-	Name string `json:"name"`
-	Line string `json:"line"`
+	Name        string `json:"name"`
+	Line        string `json:"line"`
+	Concurrency int    `json:"concurrency"` // 0 = 跟随全局
+}
+
+// normalizeProbeInput trims and bounds the descriptive fields shared by create
+// and update, so the two paths cannot drift apart.
+func normalizeProbeInput(in *probeInput) string {
+	in.Name = strings.TrimSpace(in.Name)
+	in.Line = strings.TrimSpace(in.Line)
+	if in.Name == "" {
+		return "请填写探针名称"
+	}
+	if len([]rune(in.Name)) > 40 {
+		return "名称最长 40 个字符"
+	}
+	if in.Line == "" {
+		in.Line = "默认"
+	}
+	if len([]rune(in.Line)) > 20 {
+		return "线路名过长"
+	}
+	if in.Concurrency < 0 || in.Concurrency > 256 {
+		return "并发上限需在 0 - 256 之间（0 表示跟随全局）"
+	}
+	return ""
 }
 
 func (s *Server) handleListProbes(w http.ResponseWriter, r *http.Request) {
@@ -79,26 +103,13 @@ func (s *Server) handleCreateProbe(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "请求格式有误")
 		return
 	}
-	in.Name = strings.TrimSpace(in.Name)
-	in.Line = strings.TrimSpace(in.Line)
-	if in.Name == "" {
-		fail(w, http.StatusBadRequest, "请填写探针名称")
-		return
-	}
-	if len([]rune(in.Name)) > 40 {
-		fail(w, http.StatusBadRequest, "名称最长 40 个字符")
-		return
-	}
-	if in.Line == "" {
-		in.Line = "默认"
-	}
-	if len([]rune(in.Line)) > 20 {
-		fail(w, http.StatusBadRequest, "线路名过长")
+	if msg := normalizeProbeInput(&in); msg != "" {
+		fail(w, http.StatusBadRequest, msg)
 		return
 	}
 
 	token, hash, hint := newProbeToken()
-	p, err := s.st.CreateProbe(u.ID, in.Name, in.Line, hash, hint)
+	p, err := s.st.CreateProbe(u.ID, in.Name, in.Line, in.Concurrency, hash, hint)
 	if err != nil {
 		fail(w, http.StatusInternalServerError, "创建探针失败")
 		return
@@ -106,6 +117,38 @@ func (s *Server) handleCreateProbe(w http.ResponseWriter, r *http.Request) {
 	logx.Logf(u.ID, 0, logx.Info, "新增探针: %s（%s）", p.Name, p.Line)
 	// 明文 token 只在这里出现一次，服务端只留哈希
 	ok(w, map[string]any{"probe": p, "token": token})
+}
+
+// handleUpdateProbe edits name / line / concurrency. The token is deliberately
+// not rotatable: a running agent would keep polling with the old one and the
+// panel would show it online while every task silently fails.
+func (s *Server) handleUpdateProbe(w http.ResponseWriter, r *http.Request) {
+	u := userFrom(r)
+	id, valid := pathID(r)
+	if !valid {
+		fail(w, http.StatusBadRequest, "参数有误")
+		return
+	}
+	var in probeInput
+	if err := decode(r, &in); err != nil {
+		fail(w, http.StatusBadRequest, "请求格式有误")
+		return
+	}
+	if msg := normalizeProbeInput(&in); msg != "" {
+		fail(w, http.StatusBadRequest, msg)
+		return
+	}
+	if err := s.st.UpdateProbe(id, u.ID, in.Name, in.Line, in.Concurrency); err != nil {
+		fail(w, http.StatusNotFound, "探针不存在")
+		return
+	}
+	logx.Logf(u.ID, 0, logx.Info, "更新探针 #%d：%s（%s，并发 %d）", id, in.Name, in.Line, in.Concurrency)
+	p, err := s.st.ProbeByID(id, u.ID)
+	if err != nil {
+		fail(w, http.StatusInternalServerError, "读取失败")
+		return
+	}
+	ok(w, map[string]any{"probe": p})
 }
 
 func (s *Server) handleDeleteProbe(w http.ResponseWriter, r *http.Request) {

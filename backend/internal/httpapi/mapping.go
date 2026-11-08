@@ -8,6 +8,7 @@ func storeDomainInput(in domainInput) store.DomainInput {
 		RootDomain:  in.RootDomain,
 		SubDomain:   in.SubDomain,
 		RecordLine:  in.RecordLine,
+		ColoAllow:   in.ColoAllow,
 		ProbeID:     in.ProbeID,
 		TTL:         in.TTL,
 		Slots:       in.Slots,

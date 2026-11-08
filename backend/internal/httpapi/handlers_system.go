@@ -109,22 +109,13 @@ func (s *Server) handleUpdateSettings(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case "scan_colo_allow":
-			// 存归一化后的形式，避免 "hkg, nrt" 和 "HKG,NRT" 被当成两种配置
-			v = strings.ToUpper(strings.ReplaceAll(v, " ", ""))
-			if v != "" {
-				for _, part := range strings.Split(v, ",") {
-					if len(part) != 3 {
-						fail(w, http.StatusBadRequest, "机房代码必须是 3 位字母，如 HKG,NRT")
-						return
-					}
-					for _, c := range part {
-						if c < 'A' || c > 'Z' {
-							fail(w, http.StatusBadRequest, "机房代码只能是字母")
-							return
-						}
-					}
-				}
+			// 与域名级白名单共用同一套归一化与校验
+			norm, msg := normalizeColoAllow(v)
+			if msg != "" {
+				fail(w, http.StatusBadRequest, msg)
+				return
 			}
+			v = norm
 		default:
 			n, err := strconv.Atoi(v)
 			if err != nil {

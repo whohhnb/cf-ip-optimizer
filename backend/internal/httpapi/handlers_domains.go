@@ -227,6 +227,7 @@ type domainInput struct {
 	RootDomain  string `json:"rootDomain"`
 	SubDomain   string `json:"subDomain"`
 	RecordLine  string `json:"recordLine"`
+	ColoAllow   string `json:"coloAllow"`
 	ProbeID     int64  `json:"probeId"`
 	TTL         int    `json:"ttl"`
 	Slots       int    `json:"slots"`
@@ -303,6 +304,12 @@ func normalizeDomain(in *domainInput, desc dnsprovider.Descriptor) string {
 			return fmt.Sprintf("%s 不支持线路「%s」", desc.Label, in.RecordLine)
 		}
 	}
+	colo, msg := normalizeColoAllow(in.ColoAllow)
+	if msg != "" {
+		return msg
+	}
+	in.ColoAllow = colo
+
 	in.RootDomain = root
 	in.SubDomain = sub
 	return ""
@@ -328,6 +335,26 @@ func providerInfo(provider string) map[string]any {
 
 // checkProbe makes sure the selected probe exists and belongs to the caller,
 // so a crafted probeId cannot borrow another tenant's agent.
+// normalizeColoAllow uppercases and validates a comma separated IATA list.
+// Empty means "follow the system default".
+func normalizeColoAllow(raw string) (string, string) {
+	raw = strings.ToUpper(strings.ReplaceAll(strings.TrimSpace(raw), " ", ""))
+	if raw == "" {
+		return "", ""
+	}
+	for _, part := range strings.Split(raw, ",") {
+		if len(part) != 3 {
+			return "", "机房代码必须是 3 位字母，如 HKG,NRT"
+		}
+		for _, c := range part {
+			if c < 'A' || c > 'Z' {
+				return "", "机房代码只能是字母"
+			}
+		}
+	}
+	return raw, ""
+}
+
 // defaultLineFor returns the vendor's own name for the default line.
 func defaultLineFor(desc dnsprovider.Descriptor) string {
 	for _, l := range desc.Lines {

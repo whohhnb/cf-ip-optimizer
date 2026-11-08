@@ -32,6 +32,11 @@ type Domain struct {
 	RootDomain string `json:"rootDomain"`
 	SubDomain  string `json:"subDomain"`
 	RecordLine string `json:"recordLine"` // 默认 / 电信 / 联通 / 移动 / 教育网 / 境外
+	// ColoAllow overrides the global colo whitelist for this line. Empty
+	// means "follow the system setting". Per-line matters because the best
+	// PoP differs by carrier: 移动 often wins on NRT while 电信 wins on HKG,
+	// so one shared list forces a worse intersection.
+	ColoAllow string `json:"coloAllow"`
 	// ProbeID routes this domain's scans to a remote agent sitting on the
 	// matching carrier's network. 0 means "scan locally".
 	ProbeID     int64      `json:"probeId"`
@@ -128,16 +133,20 @@ type Overview struct {
 // actually experience — anycast gives each carrier a different path to the
 // same Cloudflare IP.
 type Probe struct {
-	ID         int64      `json:"id"`
-	UserID     int64      `json:"userId"`
-	Name       string     `json:"name"`
-	Line       string     `json:"line"`
-	TokenHint  string     `json:"tokenHint"` // first 6 chars, for recognition only
-	Version    string     `json:"version"`
-	LastIP     string     `json:"lastIp"`
-	LastSeenAt *time.Time `json:"lastSeenAt"`
-	Online     bool       `json:"online"`
-	CreatedAt  time.Time  `json:"createdAt"`
+	ID     int64  `json:"id"`
+	UserID int64  `json:"userId"`
+	Name   string `json:"name"`
+	Line   string `json:"line"`
+	// Concurrency overrides the scan concurrency for this agent. 0 means
+	// "follow the global setting". Home broadband routers have small NAT
+	// tables and choke well before a server does.
+	Concurrency int        `json:"concurrency"`
+	TokenHint   string     `json:"tokenHint"` // first 6 chars, for recognition only
+	Version     string     `json:"version"`
+	LastIP      string     `json:"lastIp"`
+	LastSeenAt  *time.Time `json:"lastSeenAt"`
+	Online      bool       `json:"online"`
+	CreatedAt   time.Time  `json:"createdAt"`
 }
 
 // ProbeTask is one scan request handed to a probe.

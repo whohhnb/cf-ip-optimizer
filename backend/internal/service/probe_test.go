@@ -67,3 +67,18 @@ func TestProbeOptionsRoundTrip(t *testing.T) {
 		t.Fatalf("policy fields lost: %+v", got)
 	}
 }
+
+func TestEffectiveConcurrency(t *testing.T) {
+	cases := []struct{ global, probe, want int }{
+		{48, 0, 48},  // 0 = follow global
+		{48, 16, 16}, // home broadband cap wins
+		{48, 64, 48}, // a probe may not raise the global limit
+		{48, 48, 48}, // equal is a no-op
+		{48, -1, 48}, // defensive: negative falls back to global
+	}
+	for _, c := range cases {
+		if got := effectiveConcurrency(c.global, c.probe); got != c.want {
+			t.Fatalf("effectiveConcurrency(%d,%d)=%d, want %d", c.global, c.probe, got, c.want)
+		}
+	}
+}
