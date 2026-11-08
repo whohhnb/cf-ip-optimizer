@@ -3,12 +3,14 @@ package httpapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"regexp"
 	"sort"
 	"strings"
 
+	"edgepilot/internal/cryptox"
 	"edgepilot/internal/dnsprovider"
 	"edgepilot/internal/logx"
 	"edgepilot/internal/model"
@@ -617,6 +619,15 @@ func (s *Server) handleLiveRecords(w http.ResponseWriter, r *http.Request) {
 	}
 	plain, err := s.svc.Box.Open(enc)
 	if err != nil {
+		// 这条以前只回一个「凭据解密失败」，既没日志也没说怎么办，
+		// 排查时完全看不出是 PILOT_SECRET 变了
+		logx.Warnf(u.ID, d.ID, "%s 读取解析记录失败 · 账号 #%d 凭据解密失败 · %v",
+			d.FullName(), acct.ID, err)
+		if errors.Is(err, cryptox.ErrWrongKey) {
+			fail(w, http.StatusInternalServerError,
+				"凭据解密失败：PILOT_SECRET 与保存凭据时不一致。请到「DNS 账号」重新填写一次凭据")
+			return
+		}
 		fail(w, http.StatusInternalServerError, "凭据解密失败")
 		return
 	}

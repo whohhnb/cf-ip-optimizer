@@ -367,6 +367,9 @@ func (s *Service) PushResults(ctx context.Context, d *model.Domain, results []mo
 	}
 	plain, err := s.Box.Open(encKey)
 	if err != nil {
+		if errors.Is(err, cryptox.ErrWrongKey) {
+			return 0, errors.New("DNS 凭据解密失败：PILOT_SECRET 与保存凭据时不一致，请到「DNS 账号」重新填写一次凭据")
+		}
 		return 0, fmt.Errorf("解密 DNS 凭据失败: %w", err)
 	}
 	cred := dnsprovider.Credentials{}
