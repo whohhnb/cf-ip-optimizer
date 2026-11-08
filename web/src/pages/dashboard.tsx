@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link } from "react-router-dom"
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import {
@@ -39,6 +39,7 @@ import {
 } from "@/components/ui/table"
 import { LiveRefresh } from "@/components/live-refresh"
 import { lineLabel } from "@/lib/line"
+import { fullTime, latestTime, relativeTime } from "@/lib/time"
 import { usePoll } from "@/lib/use-poll"
 import { api, type DomainRow, type LogEntry, type Overview, type TrendPoint } from "@/lib/api"
 
@@ -47,23 +48,6 @@ const chartConfig = {
   speed: { label: "下载速度 (Mbps)", color: "var(--chart-1)" },
 } satisfies ChartConfig
 
-function statusBadge(status: string) {
-  switch (status) {
-    case "ok":
-      return <Badge variant="secondary">正常</Badge>
-    case "scanning":
-      return (
-        <Badge variant="outline">
-          <Loader2 className="animate-spin" />
-          扫描中
-        </Badge>
-      )
-    case "error":
-      return <Badge variant="destructive">异常</Badge>
-    default:
-      return <Badge variant="outline">待扫描</Badge>
-  }
-}
 
 function Metric({
   title,
@@ -112,7 +96,6 @@ export default function DashboardPage() {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [updatedAt, setUpdatedAt] = useState<number | null>(null)
-  const [busyId, setBusyId] = useState<number | null>(null)
 
   const load = useCallback(async (silent = false) => {
     try {
@@ -141,18 +124,53 @@ export default function DashboardPage() {
   // 扫描进行中时指标卡和域名表要跟着动，8 秒一次足够，且只在页面可见时跑
   usePoll(() => load(true), 8000)
 
-  async function scan(id: number) {
-    setBusyId(id)
-    try {
-      await api.scan(id)
-      toast.success("已开始扫描，稍后自动下发最优 IP")
-      void load()
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "触发失败")
-    } finally {
-      setBusyId(null)
+  // 一个主机名的多条线路在库里是独立配置，首页按主机名收成一行，
+  // 线路用带状态色的徽章排开，一眼看出哪条挂了
+  const groups = useMemo(() => {
+    const order = ["默认", "电信", "联通", "移动", "教育网", "境外"]
+    const rank = (v: string) => {
+      const i = order.indexOf(v)
+      return i < 0 ? 99 : i
     }
+    const map = new Map<string, DomainRow[]>()
+    for (const r of domains) {
+      const arr = map.get(r.full) ?? []
+      arr.push(r)
+      map.set(r.full, arr)
+    }
+    return [...map.entries()]
+      .map(([full, lines]) => ({
+        full,
+        lines: [...lines].sort(
+          (a, b) =>
+            rank(lineLabel(a.domain.recordLine, a.provider.lines)) -
+            rank(lineLabel(b.domain.recordLine, b.provider.lines)),
+        ),
+      }))
+      .sort((a, b) => a.full.localeCompare(b.full))
+  }, [domains])
+
+  async function scanGroup(g: { full: string; lines: DomainRow[] }) {
+    let ok = 0
+    const failed: string[] = []
+    for (const r of g.lines) {
+      try {
+        await api.scan(r.domain.id)
+        ok++
+      } catch (err) {
+        failed.push(
+          `${lineLabel(r.domain.recordLine, r.provider.lines)}：${
+            err instanceof Error ? err.message : "触发失败"
+          }`,
+        )
+      }
+    }
+    if (ok > 0) toast.success(`已触发 ${ok} 条线路的扫描`)
+    if (failed.length > 0) toast.error(failed.join("；"))
+    void load(true)
   }
+
+
 
   const chartData = trend.map((p) => ({
     time: new Date(p.t * 1000).toLocaleTimeString("zh-CN", {
@@ -176,21 +194,23 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
+        {/* 一个主机名可能挂多条线路，这里按主机名数，hint 里再交代线路明细，
+            否则「4 个域名」和下面只有一行表对不上 */}
         <Metric
-          title="调度域名"
-          value={overview?.domains ?? 0}
-          hint={(() => {
-            const total = overview?.domains ?? 0
-            const healthy = overview?.healthy ?? 0
-            const scanning = overview?.scanning ?? 0
-            const broken = Math.max(0, total - healthy - scanning)
-            const parts = [`${healthy} 个健康`]
-            if (broken > 0) parts.push(`${broken} 个异常`)
-            parts.push(`${scanning} 个扫描中`)
-            return parts.join(" · ")
-          })()}
+          title="调度主机"
+          value={groups.length}
           icon={Globe2}
           loading={loading}
+          hint={(() => {
+            const total = domains.length
+            const healthy = domains.filter((r) => r.domain.status === "ok").length
+            const scanning = domains.filter((r) => r.domain.status === "scanning").length
+            const broken = domains.filter((r) => r.domain.status === "error").length
+            const parts = [`${total} 条线路`, `${healthy} 健康`]
+            if (broken > 0) parts.push(`${broken} 异常`)
+            if (scanning > 0) parts.push(`${scanning} 扫描中`)
+            return parts.join(" · ")
+          })()}
         />
         <Metric
           title="平均最优延迟"
@@ -292,57 +312,86 @@ export default function DashboardPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>域名</TableHead>
-                    <TableHead>状态</TableHead>
+                    <TableHead>线路</TableHead>
                     <TableHead className="hidden text-right sm:table-cell">上次扫描</TableHead>
                     <TableHead className="text-right">操作</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {domains.map((row) => (
-                    <TableRow key={row.domain.id}>
-                      <TableCell>
-                        <Link
-                          to={`/domains/${row.domain.id}`}
-                          className="font-medium hover:underline max-sm:inline-block max-sm:py-1"
+                  {groups.map((g) => {
+                    const scanning = g.lines.some(
+                      (r) => r.running || r.domain.status === "scanning",
+                    )
+                    const latest = latestTime(g.lines.map((r) => r.domain.lastScanAt))
+                    return (
+                      <TableRow key={g.full}>
+                        <TableCell>
+                          <Link
+                            to={`/domains/${g.lines[0].domain.id}`}
+                            className="font-medium hover:underline max-sm:inline-block max-sm:py-1"
+                          >
+                            {g.full}
+                          </Link>
+                          <div className="text-xs text-muted-foreground">
+                            {g.lines.length} 条线路 · TTL {g.lines[0].domain.ttl}s
+                          </div>
+                          <div
+                            className="text-xs text-muted-foreground sm:hidden"
+                            title={fullTime(latest)}
+                          >
+                            {relativeTime(latest)}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-wrap gap-1">
+                            {g.lines.map((r) => {
+                              const l = lineLabel(r.domain.recordLine, r.provider.lines)
+                              const st = r.domain.status
+                              return (
+                                <Link
+                                  key={r.domain.id}
+                                  to={`/domains/${r.domain.id}`}
+                                  title={`${l} · ${
+                                    st === "error" ? "异常" : st === "scanning" ? "扫描中" : "正常"
+                                  }`}
+                                >
+                                  <Badge
+                                    variant={
+                                      st === "error"
+                                        ? "destructive"
+                                        : st === "scanning"
+                                          ? "outline"
+                                          : "secondary"
+                                    }
+                                    className="text-[10px] font-normal"
+                                  >
+                                    {l}
+                                  </Badge>
+                                </Link>
+                              )
+                            })}
+                          </div>
+                        </TableCell>
+                        <TableCell
+                          className="hidden text-right text-xs text-muted-foreground sm:table-cell"
+                          title={fullTime(latest)}
                         >
-                          {row.full}
-                        </Link>
-                        {/* 一个主机名有多条线路，不标出来四行长得一模一样 */}
-                        <Badge variant="secondary" className="ml-2 text-[10px] font-normal">
-                          {lineLabel(row.domain.recordLine, row.provider.lines)}
-                        </Badge>
-                        <div className="text-xs text-muted-foreground">
-                          {row.domain.slots} 条 A 记录 · TTL {row.domain.ttl}s
-                        </div>
-                        <div className="text-xs text-muted-foreground sm:hidden">
-                          {row.domain.lastScanAt
-                            ? new Date(row.domain.lastScanAt).toLocaleString("zh-CN")
-                            : "从未扫描"}
-                        </div>
-                      </TableCell>
-                      <TableCell>{statusBadge(row.domain.status)}</TableCell>
-                      <TableCell className="hidden text-right text-xs text-muted-foreground sm:table-cell">
-                        {row.domain.lastScanAt
-                          ? new Date(row.domain.lastScanAt).toLocaleString("zh-CN")
-                          : "从未"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={busyId === row.domain.id || row.running}
-                          onClick={() => void scan(row.domain.id)}
-                        >
-                          {busyId === row.domain.id || row.running ? (
-                            <Loader2 className="animate-spin" />
-                          ) : (
-                            <Play />
-                          )}
-                          扫描
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                          {relativeTime(latest)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={scanning}
+                            onClick={() => void scanGroup(g)}
+                          >
+                            {scanning ? <Loader2 className="animate-spin" /> : <Play />}
+                            {scanning ? "扫描中" : "扫描"}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })}
                 </TableBody>
               </Table>
             )}

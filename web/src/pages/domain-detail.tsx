@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner"
 import { LiveRefresh } from "@/components/live-refresh"
 import { lineLabel } from "@/lib/line"
+import { fullTime, relativeTime } from "@/lib/time"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -419,8 +420,8 @@ export default function DomainDetailPage() {
             ))
           )}
           {domain.lastPushAt && detail.managed.length > 0 ? (
-            <span className="text-xs text-muted-foreground">
-              最近下发 {new Date(domain.lastPushAt).toLocaleString("zh-CN")}
+            <span className="text-xs text-muted-foreground" title={fullTime(domain.lastPushAt)}>
+              最近下发 {relativeTime(domain.lastPushAt)}
             </span>
           ) : null}
         </CardContent>

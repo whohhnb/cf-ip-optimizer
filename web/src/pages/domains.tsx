@@ -17,6 +17,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -52,6 +53,7 @@ import {
 import { BatchDomainsDialog } from "@/components/batch-domains-dialog"
 import { LiveRefresh } from "@/components/live-refresh"
 import { lineLabel, probeNames } from "@/lib/line"
+import { fullTime, latestTime, relativeTime } from "@/lib/time"
 import { usePoll } from "@/lib/use-poll"
 import { Checkbox } from "@/components/ui/checkbox"
 import { RotationHint } from "@/components/rotation-hint"
@@ -260,6 +262,28 @@ export default function DomainsPage() {
     }
   }
 
+  // 一次把这张卡里所有线路都排上：它们各自绑不同探针，会并行跑
+  async function scanGroup(g: { full: string; lines: DomainRow[] }) {
+    const targets = g.lines.filter((r) => r.domain.status !== "scanning")
+    if (targets.length === 0) return
+    setScanningId(-1)
+    let ok = 0
+    const failed: string[] = []
+    for (const r of targets) {
+      try {
+        await api.scan(r.domain.id)
+        ok++
+      } catch (err) {
+        const label = lineLabel(r.domain.recordLine, r.provider.lines)
+        failed.push(`${label}：${err instanceof Error ? err.message : "触发失败"}`)
+      }
+    }
+    setScanningId(null)
+    if (ok > 0) toast.success(`已触发 ${ok} 条线路的扫描`)
+    if (failed.length > 0) toast.error(failed.join("；"))
+    void load(true)
+  }
+
   async function save() {
     if (!form.accountId) {
       toast.error("请先选择 DNS 账号")
@@ -392,8 +416,28 @@ export default function DomainsPage() {
                 </CardTitle>
                 <CardDescription>
                   {g.root} · TTL {g.lines[0].domain.ttl}s · 每 {g.lines[0].domain.intervalMin} 分钟
-                  · {g.lines[0].domain.autoPush ? "自动下发" : "手动下发"}
+                  · {g.lines[0].domain.autoPush ? "自动下发" : "手动下发"} · 上次扫描{" "}
+                  <span
+                    title={fullTime(latestTime(g.lines.map((r) => r.domain.lastScanAt)))}
+                  >
+                    {relativeTime(latestTime(g.lines.map((r) => r.domain.lastScanAt)))}
+                  </span>
                 </CardDescription>
+                <CardAction>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={g.lines.some((r) => r.domain.status === "scanning")}
+                    onClick={() => void scanGroup(g)}
+                  >
+                    {g.lines.some((r) => r.domain.status === "scanning") ? (
+                      <Loader2 className="animate-spin" />
+                    ) : (
+                      <Zap />
+                    )}
+                    扫描全部
+                  </Button>
+                </CardAction>
               </CardHeader>
               <CardContent className="overflow-hidden p-0">
                 <Table>
@@ -426,7 +470,15 @@ export default function DomainsPage() {
                               </Badge>
                             </Link>
                           </TableCell>
-                          <TableCell>{statusBadge(r.domain.status)}</TableCell>
+                          <TableCell>
+                            {statusBadge(r.domain.status)}
+                            <div
+                              className="mt-1 text-[11px] text-muted-foreground"
+                              title={fullTime(r.domain.lastScanAt)}
+                            >
+                              {relativeTime(r.domain.lastScanAt)}
+                            </div>
+                          </TableCell>
                           <TableCell className="whitespace-normal">
                             {r.managed.length > 0 ? (
                               <div className="flex flex-wrap items-center gap-1.5">
