@@ -296,7 +296,7 @@ export const api = {
     }>(`/api/domains/${id}`),
 
   createDomain: (body: Record<string, unknown>) =>
-    http<{ domain: Domain; job: ScanJob | null }>("/api/domains", {
+    http<{ domain: Domain; job: ScanJob | null; warning?: string }>("/api/domains", {
       method: "POST",
       body: JSON.stringify(body),
     }),

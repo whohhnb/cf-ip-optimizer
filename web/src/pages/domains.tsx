@@ -162,6 +162,11 @@ export default function DomainsPage() {
   const lineValue = lineOptions.some((l) => l.value === form.recordLine)
     ? form.recordLine
     : defaultLine
+  const currentLineLabel = lineOptions.find((l) => l.value === lineValue)?.label ?? "默认"
+  const selectedProbe = probes.find((p) => String(p.id) === form.probeId)
+  // 探针的线路是中文标签，线路的值是服务商原生值，按标签比
+  const probeMismatch =
+    !!selectedProbe && currentLineLabel !== "默认" && selectedProbe.line !== currentLineLabel
   // keep the slot selector inside what the chosen vendor can actually hold
   const slotValue = String(Math.min(Math.max(Number(form.slots) || 1, 1), maxSlots))
 
@@ -212,7 +217,11 @@ export default function DomainsPage() {
         toast.success("已保存")
       } else {
         const created = await api.createDomain(payload)
-        if (created.job) {
+        if (created.warning) {
+          // 建域名成功但首次扫描没起来（探针离线等），必须说出来，
+          // 否则用户会以为「下一轮调度就会扫」
+          toast.error(created.warning)
+        } else if (created.job) {
           toast.success("域名已添加，正在执行首次扫描", {
             action: {
               label: "查看进度",
@@ -270,9 +279,9 @@ export default function DomainsPage() {
       {accounts.length === 0 && !loading ? (
         <Alert>
           <Zap />
-          <AlertTitle>先配置 DNS 凭据</AlertTitle>
+          <AlertTitle>先配置 DNS 账号</AlertTitle>
           <AlertDescription className="flex items-center justify-between gap-4">
-            需要先添加 DNS 服务商凭据才能写入解析记录。
+            需要先添加 DNS 服务商账号才能写入解析记录
             <Button size="sm" variant="outline" render={<Link to="/accounts" />}>
               去配置
             </Button>
@@ -334,7 +343,7 @@ export default function DomainsPage() {
                         ) : null}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {domain.rootDomain} · {domain.recordLine}
+                        {domain.rootDomain}
                       </div>
                       <div className="text-xs text-muted-foreground md:hidden">
                         {domain.slots} 条 A · 每 {domain.intervalMin} 分钟
@@ -389,8 +398,8 @@ export default function DomainsPage() {
             <DialogTitle>{editing ? "编辑域名" : "添加域名"}</DialogTitle>
             <DialogDescription>
               {selectedProvider
-                ? `将通过「${selectedProvider.label}」写入解析，最多维护 ${selectedProvider.maxSlots} 条 A 记录。`
-                : "域名需已托管在所选 DNS 服务商，且记录由本平台接管。"}
+                ? `将通过「${selectedProvider.label}」写入解析，最多维护 ${selectedProvider.maxSlots} 条 A 记录`
+                : "域名需已托管在所选 DNS 服务商，且记录由本平台接管"}
             </DialogDescription>
           </DialogHeader>
 
@@ -495,9 +504,15 @@ export default function DomainsPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">
-                  选探针才会得到该线路视角的结果；探针离线时直接报错，不会退回本机
-                </p>
+                {probeMismatch ? (
+                  <p className="text-xs text-destructive">
+                    该探针在「{selectedProbe?.line}」，与所选「{currentLineLabel}」线路不一致，测出来的不是这条线路的视角
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    选探针才会得到该线路视角的结果；探针离线时直接报错，不会退回本机
+                  </p>
+                )}
               </div>
             </div>
 
@@ -595,7 +610,7 @@ export default function DomainsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>删除域名调度？</AlertDialogTitle>
             <AlertDialogDescription>
-              仅移除本平台的调度配置与历史数据，不会删除服务商上已有的解析记录。
+              仅移除本平台的调度配置与历史数据，不会删除服务商上已有的解析记录
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

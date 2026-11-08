@@ -93,17 +93,19 @@ export function BatchDomainsDialog({
     setPicked(next)
   }, [open, provider?.name, lines.length])
 
-  // 特定线路必须有同线路的在线探针：拿本机去测「联通」，测出来的不是联通的视角
-  const probeFor = (value: string): { id: number; name: string } | null => {
-    const p = probes.find((x) => x.line === value && x.online)
+  // 特定线路必须有同线路的在线探针：拿本机去测「联通」，测出来的不是联通的视角。
+  // 探针的 line 是用户填的中文标签，线路的 value 是服务商原生值（阿里云是
+  // telecom），所以按 label 比对
+  const probeFor = (line: { value: string; label: string }): { id: number; name: string } | null => {
+    const p = probes.find((x) => x.line === line.label && x.online)
     if (p) return { id: p.id, name: p.name }
-    if (value === defaultLine) return { id: 0, name: "本机扫描" }
+    if (line.value === defaultLine) return { id: 0, name: "本机扫描" }
     return null
   }
 
   // 只统计真正能创建的：勾了但没探针的不算
   const chosen = useMemo(
-    () => lines.filter((l) => picked[l.value] && probeFor(l.value)),
+    () => lines.filter((l) => picked[l.value] && probeFor(l)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [lines, picked, probes],
   )
@@ -127,7 +129,7 @@ export function BatchDomainsDialog({
     const failed: string[] = []
     let ok = 0
     for (const l of ready) {
-      const probe = probeFor(l.value)
+      const probe = probeFor(l)
       try {
         await api.createDomain({
           accountId: Number(form.accountId),
@@ -263,7 +265,7 @@ export function BatchDomainsDialog({
               <Label>要创建的线路</Label>
               <div className="divide-y rounded-lg border">
                 {lines.map((l) => {
-                  const probe = probeFor(l.value)
+                  const probe = probeFor(l)
                   return (
                     <div key={l.value} className="flex items-center justify-between gap-3 p-3">
                       <div className="min-w-0">
