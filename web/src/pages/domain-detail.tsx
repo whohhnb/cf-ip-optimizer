@@ -14,6 +14,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { LiveRefresh } from "@/components/live-refresh"
+import { lineLabel } from "@/lib/line"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -46,6 +47,7 @@ import {
   type ProviderInfo,
   type ScanEvent,
   type ScanJob,
+  type DomainRow,
   type ScanResult,
 } from "@/lib/api"
 
@@ -64,6 +66,7 @@ export default function DomainDetailPage() {
   const domainId = Number(id)
   const [detail, setDetail] = useState<Detail | null>(null)
   const [results, setResults] = useState<ScanResult[]>([])
+  const [siblings, setSiblings] = useState<DomainRow[]>([])
   const [jobs, setJobs] = useState<ScanJob[]>([])
   const [records, setRecords] = useState<LiveRecord[]>([])
   const [recordsError, setRecordsError] = useState<string | null>(null)
@@ -78,6 +81,11 @@ export default function DomainDetailPage() {
       const d = await api.domain(domainId)
       setDetail(d)
       setScanning(d.running)
+      // 同一主机名的其他线路：详情页要能直接切过去，否则另外几条没有入口
+      api
+        .domains()
+        .then((r) => setSiblings((r.domains ?? []).filter((x) => x.full === d.full)))
+        .catch(() => setSiblings([]))
       const [js, rec] = await Promise.all([
         api.jobs(domainId, 20),
         api
@@ -252,6 +260,30 @@ export default function DomainDetailPage() {
             {domain.slots} 条 A 记录 · TTL {domain.ttl}s · 每 {domain.intervalMin} 分钟扫描 ·{" "}
             {domain.autoPush ? "自动下发" : "手动下发"}
           </p>
+          {siblings.length > 1 ? (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-muted-foreground">同一主机的线路</span>
+              {siblings.map((sib) => {
+                const l = lineLabel(sib.domain.recordLine, sib.provider.lines)
+                const current = sib.domain.id === domain.id
+                return (
+                  <Link
+                    key={sib.domain.id}
+                    to={`/domains/${sib.domain.id}`}
+                    title={`切换到「${l}」线路`}
+                  >
+                    <Badge
+                      variant={current ? "default" : "outline"}
+                      className="text-[10px] font-normal"
+                    >
+                      {l}
+                      {sib.domain.status === "error" ? " · 异常" : ""}
+                    </Badge>
+                  </Link>
+                )
+              })}
+            </div>
+          ) : null}
           {domain.status === "error" && domain.statusMsg ? (
             <Alert variant="destructive" className="mt-1">
               <AlertTriangle />

@@ -38,6 +38,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { LiveRefresh } from "@/components/live-refresh"
+import { lineLabel } from "@/lib/line"
 import { usePoll } from "@/lib/use-poll"
 import { api, type DomainRow, type LogEntry, type Overview, type TrendPoint } from "@/lib/api"
 
@@ -306,6 +307,10 @@ export default function DashboardPage() {
                         >
                           {row.full}
                         </Link>
+                        {/* 一个主机名有多条线路，不标出来四行长得一模一样 */}
+                        <Badge variant="secondary" className="ml-2 text-[10px] font-normal">
+                          {lineLabel(row.domain.recordLine, row.provider.lines)}
+                        </Badge>
                         <div className="text-xs text-muted-foreground">
                           {row.domain.slots} 条 A 记录 · TTL {row.domain.ttl}s
                         </div>

@@ -51,6 +51,7 @@ import {
 } from "@/components/ui/table"
 import { BatchDomainsDialog } from "@/components/batch-domains-dialog"
 import { LiveRefresh } from "@/components/live-refresh"
+import { lineLabel, probeNames } from "@/lib/line"
 import { usePoll } from "@/lib/use-poll"
 import { Checkbox } from "@/components/ui/checkbox"
 import { RotationHint } from "@/components/rotation-hint"
@@ -90,19 +91,6 @@ const emptyForm: FormState = {
   intervalMin: "60",
   autoPush: true,
   enabled: true,
-}
-
-// 一个域名可以绑多个探针，列表里要把它们都列出来，不能只显示第一个
-function probeNames(ids: number[] | undefined, probes: Probe[]) {
-  return (ids ?? []).map((id) => probes.find((p) => p.id === id)?.name ?? "已删除")
-}
-
-function lineLabel(value: string, lines?: { value: string; label: string }[]) {
-  if (!value) return "默认"
-  if (!lines || lines.length === 0) {
-    return value === "default" ? "默认" : value
-  }
-  return lines.find((l) => l.value === value)?.label ?? value
 }
 
 function statusBadge(status: string) {
@@ -423,7 +411,11 @@ export default function DomainsPage() {
                       const label = lineLabel(r.domain.recordLine, r.provider.lines)
                       const names = probeNames(r.domain.probeIds, probes)
                       return (
-                        <TableRow key={r.domain.id} className="align-top">
+                        <TableRow
+                          key={r.domain.id}
+                          className="cursor-pointer align-top"
+                          onClick={() => navigate(`/domains/${r.domain.id}`)}
+                        >
                           <TableCell>
                             <Link to={`/domains/${r.domain.id}`} title="查看这条线路的详情">
                               <Badge
@@ -466,7 +458,10 @@ export default function DomainsPage() {
                                 disabled={
                                   scanningId === r.domain.id || r.domain.status === "scanning"
                                 }
-                                onClick={() => void scanOne(r.domain.id)}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  void scanOne(r.domain.id)
+                                }}
                               >
                                 {scanningId === r.domain.id || r.domain.status === "scanning" ? (
                                   <Loader2 className="animate-spin" />
@@ -479,7 +474,10 @@ export default function DomainsPage() {
                                 size="icon-sm"
                                 aria-label="编辑"
                                 title="编辑这条线路"
-                                onClick={() => openEdit(r.domain)}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  openEdit(r.domain)
+                                }}
                               >
                                 <Pencil />
                               </Button>
@@ -488,7 +486,10 @@ export default function DomainsPage() {
                                 size="icon-sm"
                                 aria-label="删除"
                                 title="删除这条线路"
-                                onClick={() => setRemoving(r.domain)}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setRemoving(r.domain)
+                                }}
                               >
                                 <Trash2 />
                               </Button>
