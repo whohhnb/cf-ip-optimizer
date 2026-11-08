@@ -35,6 +35,14 @@ type Field struct {
 	Required    bool   `json:"required"`
 }
 
+// LineOption is one carrier-level resolution line a vendor supports.
+// Value is the vendor's native string (DNSPod uses Chinese names, Aliyun uses
+// codes like "telecom"), Label is what the UI shows.
+type LineOption struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
 // Descriptor is the static metadata the frontend needs to build a form.
 type Descriptor struct {
 	Name     string  `json:"name"`
@@ -49,6 +57,33 @@ type Descriptor struct {
 	// NoList marks vendors that cannot enumerate remote records (webhook etc),
 	// so the UI does not pretend the list is simply empty.
 	NoList bool `json:"noList"`
+	// Lines lists the carrier-level lines this vendor can resolve separately.
+	// Empty means the vendor has no such concept and the UI must hide the
+	// selector — writing 电信 to a vendor that ignores it would silently create
+	// a second record on the default line.
+	Lines []LineOption `json:"lines,omitempty"`
+}
+
+// LineValues returns the native values of the supported lines.
+func (d Descriptor) LineValues() []string {
+	out := make([]string, 0, len(d.Lines))
+	for _, l := range d.Lines {
+		out = append(out, l.Value)
+	}
+	return out
+}
+
+// SupportsLine reports whether value is a valid line for this vendor.
+func (d Descriptor) SupportsLine(value string) bool {
+	if value == "" {
+		return true
+	}
+	for _, l := range d.Lines {
+		if l.Value == value {
+			return true
+		}
+	}
+	return false
 }
 
 type Provider interface {

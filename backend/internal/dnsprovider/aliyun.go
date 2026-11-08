@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 )
 
 // AliyunDNS drives 阿里云云解析 DNS through the classic RPC style API.
@@ -24,8 +25,18 @@ const (
 
 func init() {
 	Register(Descriptor{
-		Name:     "aliyun",
-		Label:    "阿里云云解析 DNS",
+		Name:  "aliyun",
+		Label: "阿里云云解析 DNS",
+		// 阿里云用英文线路代码，权威清单可通过 DescribeDomainInfo 的
+		// RecordLines 拿到；这里列的是公网权威解析的基础线路
+		Lines: []LineOption{
+			{Value: "default", Label: "默认"},
+			{Value: "telecom", Label: "电信"},
+			{Value: "unicom", Label: "联通"},
+			{Value: "mobile", Label: "移动"},
+			{Value: "edu", Label: "教育网"},
+			{Value: "oversea", Label: "境外"},
+		},
 		Docs:     "https://ram.console.aliyun.com/manage/ak",
 		MaxSlots: 2,
 		Fields: []Field{
@@ -74,6 +85,14 @@ func (a *AliyunDNS) call(ctx context.Context, params url.Values, out any) error 
 	return nil
 }
 
+// aliyunLine maps an empty line to the vendor's default code.
+func aliyunLine(line string) string {
+	if strings.TrimSpace(line) == "" {
+		return "default"
+	}
+	return line
+}
+
 func (a *AliyunDNS) ListA(ctx context.Context, root, sub, line string) ([]Record, error) {
 	params := url.Values{}
 	params.Set("Action", "DescribeSubDomainRecords")
@@ -98,8 +117,12 @@ func (a *AliyunDNS) ListA(ctx context.Context, root, sub, line string) ([]Record
 	if err := a.call(ctx, params, &out); err != nil {
 		return nil, err
 	}
+	want := aliyunLine(line)
 	records := make([]Record, 0, len(out.DomainRecords.Record))
 	for _, r := range out.DomainRecords.Record {
+		if !strings.EqualFold(r.Line, want) {
+			continue
+		}
 		records = append(records, Record{
 			RecordID: r.RecordID,
 			Name:     r.RR,
@@ -120,6 +143,7 @@ func (a *AliyunDNS) Create(ctx context.Context, root, sub, value, line string, t
 	params.Set("Type", "A")
 	params.Set("Value", value)
 	params.Set("TTL", strconv.Itoa(ttl))
+	params.Set("Line", aliyunLine(line))
 
 	var out struct {
 		RecordID string `json:"RecordId"`
@@ -138,6 +162,7 @@ func (a *AliyunDNS) Update(ctx context.Context, root, sub, recordID, value, line
 	params.Set("Type", "A")
 	params.Set("Value", value)
 	params.Set("TTL", strconv.Itoa(ttl))
+	params.Set("Line", aliyunLine(line))
 	return a.call(ctx, params, nil)
 }
 

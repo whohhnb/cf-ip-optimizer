@@ -115,3 +115,43 @@ func TestRegistryHasProviders(t *testing.T) {
 		}
 	}
 }
+
+// fakeLines records the line string the sync layer hands to the vendor, so a
+// refactor cannot silently drop carrier-level routing.
+type fakeLines struct {
+	line    string
+	created []string
+}
+
+func (f *fakeLines) ListA(ctx context.Context, root, sub, line string) ([]Record, error) {
+	f.line = line
+	return nil, nil
+}
+func (f *fakeLines) Create(ctx context.Context, root, sub, value, line string, ttl int, remark string) (Record, error) {
+	f.line = line
+	f.created = append(f.created, value)
+	return Record{RecordID: "1", Value: value, Line: line}, nil
+}
+func (f *fakeLines) Update(ctx context.Context, root, sub, recordID, value, line string, ttl int) error {
+	f.line = line
+	return nil
+}
+func (f *fakeLines) Delete(ctx context.Context, root, recordID string) error { return nil }
+func (f *fakeLines) Verify(ctx context.Context, root string) error           { return nil }
+
+func TestSyncForwardsRecordLine(t *testing.T) {
+	f := &fakeLines{}
+	_, err := Sync(context.Background(), f, SyncOptions{
+		RootDomain: "example.com", SubDomain: "cdn", RecordLine: "电信",
+		Slots: 1, TTL: 600, Desired: []string{"1.1.1.1"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.line != "电信" {
+		t.Fatalf("sync must forward the line untouched, got %q", f.line)
+	}
+	if len(f.created) != 1 || f.created[0] != "1.1.1.1" {
+		t.Fatalf("expected one created record, got %v", f.created)
+	}
+}

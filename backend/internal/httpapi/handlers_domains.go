@@ -227,6 +227,7 @@ type domainInput struct {
 	RootDomain  string `json:"rootDomain"`
 	SubDomain   string `json:"subDomain"`
 	RecordLine  string `json:"recordLine"`
+	ProbeID     int64  `json:"probeId"`
 	TTL         int    `json:"ttl"`
 	Slots       int    `json:"slots"`
 	AutoPush    bool   `json:"autoPush"`
@@ -236,7 +237,7 @@ type domainInput struct {
 
 var labelRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
 
-func normalizeDomain(in *domainInput, maxSlots int) string {
+func normalizeDomain(in *domainInput, desc dnsprovider.Descriptor) string {
 	root := strings.ToLower(strings.TrimSpace(in.RootDomain))
 	root = strings.TrimPrefix(root, "https://")
 	root = strings.TrimPrefix(root, "http://")
@@ -273,6 +274,7 @@ func normalizeDomain(in *domainInput, maxSlots int) string {
 	if in.Slots < 1 {
 		return "解析条数至少 1 条"
 	}
+	maxSlots := desc.MaxSlots
 	if maxSlots <= 0 {
 		maxSlots = 2
 	}
@@ -285,8 +287,21 @@ func normalizeDomain(in *domainInput, maxSlots int) string {
 	if in.IntervalMin < 5 || in.IntervalMin > 1440 {
 		return "扫描间隔需在 5 - 1440 分钟之间"
 	}
-	if in.RecordLine == "" {
-		in.RecordLine = "默认"
+	// 线路必须是该服务商真实支持的值：把「电信」写给不支持分线路的服务商，
+	// 只会静默多建一条默认线路的记录，比直接报错更难查
+	in.RecordLine = strings.TrimSpace(in.RecordLine)
+	if len(desc.Lines) == 0 {
+		if in.RecordLine != "" && in.RecordLine != "默认" && in.RecordLine != "default" {
+			return desc.Label + " 不支持分线路解析，线路只能保持默认"
+		}
+		in.RecordLine = defaultLineFor(desc)
+	} else {
+		if in.RecordLine == "" {
+			in.RecordLine = defaultLineFor(desc)
+		}
+		if !desc.SupportsLine(in.RecordLine) {
+			return fmt.Sprintf("%s 不支持线路「%s」", desc.Label, in.RecordLine)
+		}
 	}
 	in.RootDomain = root
 	in.SubDomain = sub
@@ -307,14 +322,38 @@ func providerInfo(provider string) map[string]any {
 		"setBased": desc.SetBased,
 		"noList":   desc.NoList,
 		"note":     desc.Note,
+		"lines":    desc.Lines,
 	}
 }
 
-func providerMaxSlots(provider string) int {
-	if d, ok := dnsprovider.DescriptorOf(provider); ok && d.MaxSlots > 0 {
-		return d.MaxSlots
+// checkProbe makes sure the selected probe exists and belongs to the caller,
+// so a crafted probeId cannot borrow another tenant's agent.
+// defaultLineFor returns the vendor's own name for the default line.
+func defaultLineFor(desc dnsprovider.Descriptor) string {
+	for _, l := range desc.Lines {
+		if l.Label == "默认" {
+			return l.Value
+		}
 	}
-	return 2
+	return "默认"
+}
+
+func (s *Server) checkProbe(u *model.User, probeID int64) string {
+	if probeID <= 0 {
+		return ""
+	}
+	if _, err := s.st.ProbeByID(probeID, u.ID); err != nil {
+		return "所选探针不存在"
+	}
+	return ""
+}
+
+// providerDesc returns the descriptor, or an empty one for unknown vendors.
+func providerDesc(provider string) dnsprovider.Descriptor {
+	if d, ok := dnsprovider.DescriptorOf(provider); ok {
+		return d
+	}
+	return dnsprovider.Descriptor{Name: provider, Label: provider, MaxSlots: 2}
 }
 
 func (s *Server) handleListDomains(w http.ResponseWriter, r *http.Request) {
@@ -354,7 +393,11 @@ func (s *Server) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "请先添加 DNS 账号")
 		return
 	}
-	if msg := normalizeDomain(&in, providerMaxSlots(acct.Provider)); msg != "" {
+	if msg := normalizeDomain(&in, providerDesc(acct.Provider)); msg != "" {
+		fail(w, http.StatusBadRequest, msg)
+		return
+	}
+	if msg := s.checkProbe(u, in.ProbeID); msg != "" {
 		fail(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -434,7 +477,11 @@ func (s *Server) handleUpdateDomain(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "请先添加 DNS 账号")
 		return
 	}
-	if msg := normalizeDomain(&in, providerMaxSlots(acct.Provider)); msg != "" {
+	if msg := normalizeDomain(&in, providerDesc(acct.Provider)); msg != "" {
+		fail(w, http.StatusBadRequest, msg)
+		return
+	}
+	if msg := s.checkProbe(u, in.ProbeID); msg != "" {
 		fail(w, http.StatusBadRequest, msg)
 		return
 	}

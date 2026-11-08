@@ -32,8 +32,18 @@ const (
 
 func init() {
 	Register(Descriptor{
-		Name:     "dnspod",
-		Label:    "腾讯云 DNSPod",
+		Name:  "dnspod",
+		Label: "腾讯云 DNSPod",
+		// DNSPod 的权威清单是 DescribeRecordLineList，这里列的是免费版就带的
+		// 基础线路；域名的实际可用线路受套餐限制，传错会被 API 直接拒绝
+		Lines: []LineOption{
+			{Value: "默认", Label: "默认"},
+			{Value: "电信", Label: "电信"},
+			{Value: "联通", Label: "联通"},
+			{Value: "移动", Label: "移动"},
+			{Value: "教育网", Label: "教育网"},
+			{Value: "境外", Label: "境外"},
+		},
 		Docs:     "https://console.cloud.tencent.com/cam/capi",
 		MaxSlots: 2,
 		Fields: []Field{
