@@ -131,6 +131,10 @@ export default function DomainsPage() {
   const [form, setForm] = useState<FormState>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState<Domain | null>(null)
+  const removingRow = rows.find((r) => r.domain.id === removing?.id)
+  const removingLabel = removingRow
+    ? lineLabel(removingRow.domain.recordLine, removingRow.provider.lines)
+    : ""
   const [batchOpen, setBatchOpen] = useState(false)
 
   const load = useCallback(async (silent = false) => {
@@ -253,6 +257,21 @@ export default function DomainsPage() {
     return out
   }, [rows])
 
+  const [scanningId, setScanningId] = useState<number | null>(null)
+
+  async function scanOne(id: number) {
+    setScanningId(id)
+    try {
+      await api.scan(id)
+      toast.success("已开始扫描这条线路")
+      void load(true)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "触发失败")
+    } finally {
+      setScanningId(null)
+    }
+  }
+
   async function save() {
     if (!form.accountId) {
       toast.error("请先选择 DNS 账号")
@@ -357,7 +376,11 @@ export default function DomainsPage() {
         <Card>
           <CardContent className="flex h-40 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
             <Globe2 className="size-6" />
-            还没有添加域名
+            <p>还没有添加域名</p>
+            <Button size="sm" onClick={openCreate}>
+              <Plus />
+              添加域名
+            </Button>
           </CardContent>
         </Card>
       ) : (
@@ -384,7 +407,7 @@ export default function DomainsPage() {
                   · {g.lines[0].domain.autoPush ? "自动下发" : "手动下发"}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="p-0">
+              <CardContent className="overflow-hidden p-0">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -402,12 +425,14 @@ export default function DomainsPage() {
                       return (
                         <TableRow key={r.domain.id} className="align-top">
                           <TableCell>
-                            <Badge
-                              variant={label === "默认" ? "outline" : "secondary"}
-                              className="text-[10px] font-normal"
-                            >
-                              {label}
-                            </Badge>
+                            <Link to={`/domains/${r.domain.id}`} title="查看这条线路的详情">
+                              <Badge
+                                variant={label === "默认" ? "outline" : "secondary"}
+                                className="text-[10px] font-normal hover:bg-accent"
+                              >
+                                {label}
+                              </Badge>
+                            </Link>
                           </TableCell>
                           <TableCell>{statusBadge(r.domain.status)}</TableCell>
                           <TableCell className="whitespace-normal">
@@ -433,6 +458,22 @@ export default function DomainsPage() {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label="立即扫描"
+                                title="立即扫描这条线路"
+                                disabled={
+                                  scanningId === r.domain.id || r.domain.status === "scanning"
+                                }
+                                onClick={() => void scanOne(r.domain.id)}
+                              >
+                                {scanningId === r.domain.id || r.domain.status === "scanning" ? (
+                                  <Loader2 className="animate-spin" />
+                                ) : (
+                                  <Zap />
+                                )}
+                              </Button>
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
@@ -698,7 +739,9 @@ export default function DomainsPage() {
       <AlertDialog open={!!removing} onOpenChange={(v) => !v && setRemoving(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>删除域名调度？</AlertDialogTitle>
+            <AlertDialogTitle>
+              删除「{removingLabel || "该"}」线路？
+            </AlertDialogTitle>
             <AlertDialogDescription>
               仅移除本平台的调度配置与历史数据，不会删除服务商上已有的解析记录
             </AlertDialogDescription>
