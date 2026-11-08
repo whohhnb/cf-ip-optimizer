@@ -1,20 +1,58 @@
-# EdgePilot · 边缘领航
+<div align="center">
+<img src="docs/logo.svg" width="84" alt="EdgePilot" />
+<h1>EdgePilot · 边缘领航</h1>
+<p>给 Cloudflare 站点挑最快的边缘 IP，挑完自动改 DNS<br />一个二进制跑起来，剩下的交给它</p>
+<p>
+<a href="https://github.com/whohhnb/cf-ip-optimizer/releases"><img src="https://img.shields.io/github/v/release/whohhnb/cf-ip-optimizer?style=flat-square&label=release&color=2f8f5f" alt="release" /></a>
+<a href="https://github.com/whohhnb/cf-ip-optimizer/actions"><img src="https://img.shields.io/github/actions/workflow/status/whohhnb/cf-ip-optimizer/release.yaml?style=flat-square&label=release%20ci" alt="CI" /></a>
+<a href="LICENSE"><img src="https://img.shields.io/github/license/whohhnb/cf-ip-optimizer?style=flat-square&color=4b5563" alt="license" /></a>
+<img src="https://img.shields.io/badge/platform-linux%20%7C%20macOS%20%7C%20Windows-6b7280?style=flat-square" alt="platform" />
+<img src="https://img.shields.io/badge/image-ghcr.io-2496ED?style=flat-square&logo=docker&logoColor=white" alt="image" />
+</p>
+</div>
 
-给 Cloudflare 站点挑最快的边缘 IP，挑完自动改 DNS，装一个二进制就能跑
+| 上手 | 深入 | 运维 |
+| :--- | :--- | :--- |
+| [它解决什么问题](#它解决什么问题) | [工作原理](#工作原理) | [部署](#部署) |
+| [特性](#特性) | [双 IP 滚动替换](#双-ip-滚动替换) | [配置](#配置) |
+| [快速开始](#快速开始) | [分线路与探针](#分线路与探针) | [忘记密码](#忘记密码) |
+| [界面](#界面) | [支持的 DNS 服务商](#支持的-dns-服务商) | [常见问题](#常见问题) |
+
+## 它解决什么问题
+
+Cloudflare 的 anycast 网络里，**任何一个边缘 IP 都能打开你的站**，但从国内出发，不同 IP 的路由质量能差三到十倍，同一个域名换个 IP 可能从 300ms 掉到 60ms。
+
+社区的做法是拿测速工具扫一遍，挑几个快的，手动去 DNS 面板改 A 记录。问题是 IP 会劣化，今天快的下个月就慢，没人天天手动扫。
+
+EdgePilot 把这套流程做成常驻服务：**定时测速 → 按延迟、速度、丢包打分 → 把最优的两个 IP 写进你的 DNS**，你只管看结果。
+
+适合自己管着域名、想要电信联通移动都快、并且能接受一台常驻机器的人。只想改一次 IP、拿不到 DNS API 权限、或者要的是 IPv6（本项目只写 A 记录），它不是干这个的。
+
+跑起来大概长这样：
 
 ![总览](docs/dashboard.png)
 
----
+## 特性
 
-## 这东西解决什么问题
+| | |
+| :--- | :--- |
+| **三段式测速**<br>TCP 握手 → `/cdn-cgi/trace` 校验 → 下载测速，不拿带宽去测一堆注定不合格的 IP | **双 IP 滚动替换**<br>每轮只改一条记录，任何时刻都有一条指向可用 IP |
+| **故障自愈**<br>每三分钟巡检当前生效的 IP，全挂立刻重扫，不等定时任务 | **只动自己的记录**<br>备注标记 + 本地「记录 ID → 槽位」账本，手写记录永不碰 |
+| **16 家 DNS 服务商**<br>国内四家 + 海外主流，外加自定义 Webhook 兜底 | **分线路 + 探针**<br>电信 / 联通 / 移动各测各的，下发到各自的线路记录 |
 
-Cloudflare 的 anycast 网络里，**任何一个边缘 IP 都能打开你的站**，但从国内出发，不同 IP 的路由质量能差三到十倍，同一个域名换个 IP 可能从 300ms 掉到 60ms
+> [!TIP]
+> 加新厂商只要在 `backend/internal/dnsprovider/` 放一个文件，实现五个方法加一段 `Register()` 声明字段，前端表单自动出现，UI 一行都不用改。
 
-社区的做法是拿测速工具扫一遍，挑几个快的，手动去 DNS 面板改 A 记录，问题是 IP 会劣化，今天快的下个月就慢，没人天天手动扫
+## 快速开始
 
-EdgePilot 把这套流程做成常驻服务：定时测速 → 按延迟、速度、丢包打分 → 把最优的两个 IP 写进你的 DNS，你只管看结果
+### 动手前先确认
 
-## 三分钟跑起来
+工具只负责「测速 + 写 A 记录」，两头得自己准备好：
+
+- **Cloudflare 侧**：域名必须已经在 CF 上生效（常规接入、CNAME 接入、SaaS 自定义主机名都行）。没生效的话把 A 记录指向 CF 边缘 IP 只会拿到 403；测速时会用你的域名做 SNI，所以证书得先签好。
+- **DNS 侧**：NS 托管在你选的服务商上，账号有该域名的解析读写权限。建议单独建一个只有解析权限的子账号，别用主账号密钥。
+
+### 三条命令
 
 ```bash
 git clone https://github.com/whohhnb/cf-ip-optimizer && cd cf-ip-optimizer
@@ -22,24 +60,44 @@ cp .env.example .env      # 填 PILOT_DOMAIN、ACME_EMAIL、PILOT_SECRET
 docker compose up -d --build
 ```
 
-打开 `https://你的域名`，第一个注册的账号自动成为管理员，然后按顺序做三件事：**加 DNS 账号 → 加域名 → 等它扫完**
+打开 `https://你的域名`，**第一个注册的账号自动成为管理员**，然后按顺序做三件事：加 DNS 账号 → 加域名 → 等它扫完。
 
-![初始化](docs/setup.png)
+### 其他安装方式
 
-不想用 Docker 的话，[Release](https://github.com/whohhnb/cf-ip-optimizer/releases) 里有 linux、macOS、Windows 的预编译包，解压即用
+- **预编译包**：[Release](https://github.com/whohhnb/cf-ip-optimizer/releases) 里有 linux / macOS / Windows 五个平台的压缩包，解压即用
+- **现成镜像**：不想本地构建的话，直接拉 CI 推好的多架构镜像（amd64 / arm64）
 
-## 它做了什么
+```bash
+docker pull ghcr.io/whohhnb/cf-ip-optimizer:latest
+```
 
-- **三段式测速**：先 TCP 握手测延迟和丢包（便宜，能扫几百个），再对最快的几十个做 `/cdn-cgi/trace` 验证和下载测速（贵，但准），不拿带宽去测一堆注定不合格的 IP
-- **双 IP 滚动替换**：当前 `[A, B]`、最优 `[C, D]` 时一轮只改一条，`[C, B]` → `[C, D]`，任何时刻都有一条记录指向可用 IP，代价是最优解晚一个周期生效
-- **故障自愈**：每三分钟探一次当前生效的 IP，全挂就立刻重扫，不等定时任务
-- **只动自己的记录**：平台创建的记录带备注标记，本地还有一份「记录 ID → 槽位」账本，双重确认，你手写的 A 记录永远不会被碰
-- **16 家 DNS 服务商**：腾讯云、阿里云、华为云、百度智能云、Cloudflare、GoDaddy、Porkbun、NameSilo、ClouDNS、deSEC、NS1、Gcore、Vercel、Name.com、Spaceship，外加一个自定义 Webhook 兜底
-- **分线路 + 探针**：把探针部署到电信 / 联通 / 移动的机器上，各线路用自己的视角优选、下发到自己的线路记录（仅 DNSPod、阿里云支持线路）
+## 界面
 
-> 加新厂商只要在 `backend/internal/dnsprovider/` 放一个文件，实现五个方法加一段 `Register()` 声明字段，前端表单自动出现，UI 一行都不用改
+一个主机名一张卡，四条线路一行一条，直接看到当前生效的 IP、绑的探针和失败原因：
 
-## 它是怎么挑 IP 的
+![域名调度](docs/domains.png)
+
+点进去是这条线路的扫描明细，每列可排序，能导出 CSV：
+
+![线路详情](docs/detail.png)
+
+配色参照 Material Design 3，但没照抄那套四十多个 token。每套主题只声明四个种子色（primary、secondary、tertiary、error），其余 surface、border、文字色全部用 `color-mix()` 从种子算出来，浅色面是主色混白 5%，深色面是主色混近黑 8%，这就是 MD3 的 tonal surface。换主题只改四个变量，整个界面自动跟着走。
+
+内置七套配色（默认翡翠）加明暗模式，左下角随时切：
+
+![主题与外观](docs/theme-menu.png)
+
+深色模式下所有 surface 也跟着种子色走，不是简单反色：
+
+![深色模式](docs/theme-dark.png)
+
+窄屏下侧边栏自动收成图标栏，表格按优先级隐藏次要列，手机上「域名、状态、操作」永远可见，不用横向滚动才能点到操作。
+
+## 工作原理
+
+定时器到点就扫一轮，扫完评分、下发；平时每三分钟巡检一次当前生效的 IP，全挂就立刻重扫，不等下一个周期。
+
+一轮扫描具体做了什么：
 
 ```
 采样     官方 15 段里取 300 个：一半均分（保证小段不被淹没），一半按段大小加权
@@ -71,13 +129,9 @@ docker compose up -d --build
 
 它**不是** Cloudflare 的全部 IP：`1.1.1.1` 公共 DNS 不在里面，Cloudflare 自有的 `104.28.0.0/14` 没发布，中国网络走独立的境内段，WARP / Gateway 出口另有文档。这些都不该拿来做优选，写进 A 记录要么打不开站点，要么根本不通。
 
-![测速结果](docs/scan-result.png)
+## 双 IP 滚动替换
 
-## 关于双 IP
-
-腾讯云「同一主机名 + 同一线路」最多两条 A 记录，这是硬限制，所以每条线路默认维护两条（分线路时每条线路各算各的，见下面的「按运营商分线路」）
-
-![滚动替换](docs/rotation.png)
+腾讯云「同一主机名 + 同一线路」最多两条 A 记录，这是硬限制，所以每条线路默认维护两条（分线路时每条线路各算各的，见下面的「分线路与探针」）。
 
 假设现在是 `[A, B]`，这次扫出来最好的是 `[C, D]`：
 
@@ -89,23 +143,30 @@ docker compose up -d --build
 轮次 2   [C] [D]      ← 只改槽位 2
 ```
 
-关掉滚动替换就一次改到位，收敛更快，但两条同时指向坏 IP 时会有几十秒全站不可用，默认开
+关掉滚动替换就一次改到位，收敛更快，但两条同时指向坏 IP 时会有几十秒全站不可用，默认开。
 
-有个细节：目标 IP 已经在另一条记录上（只是槽位顺序不同）时，平台只在本地重排映射，**一次 API 调用都不发**
+有个细节：目标 IP 已经在另一条记录上（只是槽位顺序不同）时，平台只在本地重排映射，**一次 API 调用都不发**。
 
-## 关于「整组覆盖」型服务商
+### 整组覆盖型服务商
 
-DNS 厂商的 API 分两类，逐记录型（腾讯云、阿里云、Cloudflare…）每条 A 记录有独立 ID，能精确只改一条，而华为云、deSEC、Gcore、NS1、GoDaddy、Spaceship 是**整组覆盖**：一个主机名加 A 类型只有一个记录集对象，里面放多个值
+DNS 厂商的 API 分两类。逐记录型（腾讯云、阿里云、Cloudflare…）每条 A 记录有独立 ID，能精确只改一条；而华为云、deSEC、Gcore、NS1、GoDaddy、Spaceship 是**整组覆盖**——一个主机名加 A 类型只有一个记录集对象，里面放多个值。
 
-这类厂商平台会读回整组、只替换其中一个值、再整体写回，滚动替换照样成立，详情页文案也跟着变，不会出现「两条记录轮流改」这种对不上的描述
+这类厂商平台会读回整组、只替换其中一个值、再整体写回，滚动替换照样成立，详情页文案也跟着变，不会出现「两条记录轮流改」这种对不上的描述。
 
-Webhook 模式更极端，只接收下发、不支持回读，界面上直接说「该服务商不支持回读记录」，而不是假装列表是空的
+Webhook 模式更极端，只接收下发、不支持回读，界面上直接说「该服务商不支持回读记录」，而不是假装列表是空的。
 
-## 按运营商分线路（探针）
+## 分线路与探针
 
 同一个 Cloudflare anycast IP，电信、联通、移动走的国际出口完全不同，延迟差 3–10 倍是常态。所以**一个 IP 不可能对三家都最优**，面板所在机器扫出来的「最优」只代表那台机器的网络。
 
 要做三网都快，只有一条路：每条线路各自测量、各自下发。这需要探针。
+
+```mermaid
+flowchart LR
+  P["三网探针"] -->|"回传测速结果"| C["面板<br/>按最差值聚合"]
+  C -->|"只改一条记录"| D["DNS 服务商"]
+  D --> V["访客"]
+```
 
 ![探针节点](docs/probes.png)
 
@@ -114,13 +175,14 @@ Webhook 模式更极端，只接收下发、不支持回读，界面上直接说
 只有 API 真的有「线路」概念的才行，其余 14 家写死了也没用：
 
 | 服务商 | 支持 | 线路取值 |
-| --- | --- | --- |
+| --- | :---: | --- |
 | 腾讯云 DNSPod | ✅ | 默认 / 电信 / 联通 / 移动 / 教育网 / 境外 |
 | 阿里云云解析 | ✅ | `default` / `telecom` / `unicom` / `mobile` / `edu` / `oversea` |
-| Cloudflare、华为云、百度云、GoDaddy、Porkbun、NameSilo、ClouDNS、deSEC、NS1、Gcore、Vercel、Name.com、Spaceship、Webhook | ❌ | — |
+| 其余 14 家（见下方清单） | ❌ | — |
 
 不支持的服务商，界面上的线路选择器会直接禁用，后端也会拒绝非默认线路。**不会静默把「电信」当成「默认」写进去**，那样只会多出一条重复记录，比报错更难查。
 
+> [!NOTE]
 > DNSPod 的权威线路清单是 `DescribeRecordLineList` 接口，具体可用线路受套餐限制。上面列的是免费版就带的基础线路，传了套餐不支持的值，API 会直接报错并原样透出。
 
 ### 怎么用
@@ -144,11 +206,15 @@ cdn.example.com  联通  → 探针「香港-联通」 → 下发到 RecordLine=
 cdn.example.com  移动  → 探针「香港-移动」 → 下发到 RecordLine=移动
 ```
 
-**批量建：**「按线路批量添加」一次把默认 + 三网建好，每条线路自动匹配同线路的在线探针；没有探针的线路会直接禁用，不会拿本机去冒充联通。
+弹窗里选好线路，下面就能勾探针，线路不一致的探针会直接标红提醒：
+
+![添加域名](docs/dialog.png)
+
+**批量建**：「按线路批量添加」一次把默认 + 三网建好，每条线路自动匹配同线路的在线探针；没有探针的线路会直接禁用，不会拿本机去冒充联通。
 
 ![批量添加](docs/batch.png)
 
-### 一条线路可以绑多个探针（按最差值聚合）
+### 一条线路可以绑多个探针
 
 一个探针只代表它所在那一小块网络。广东移动的视角和北京移动差很多，只绑一个，等于拿一个省的结论推全国。
 
@@ -165,8 +231,8 @@ cdn.example.com  移动  → 探针「香港-移动」 → 下发到 RecordLine=
 
 两个实现细节：
 
-- **候选列表由主控统一下发**。两个探针各自随机采样 300 个，在 152 万地址里几乎不重叠，按 IP 合并就没有意义了
-- **某个探针没回来也能合并**。用已回传的结果继续，日志里标「1 / 2 个探针未返回」；一台探针掉线不会让整条线路停摆
+- **候选列表由主控统一下发**。两个探针各自随机采样 300 个，在 152 万地址里几乎不重叠，按 IP 合并就没有意义了。
+- **某个探针没回来也能合并**。用已回传的结果继续，日志里标「1 / 2 个探针未返回」；一台探针掉线不会让整条线路停摆。
 
 代价是线性的：3 个探针 = 3 份扫描流量。所以一条线路最多绑 8 个，再多收益就没了。
 
@@ -189,7 +255,7 @@ cdn.example.com  联通  → HKG,NRT      联通两条路都还行，取并集
 腾讯云的限制是「同一主机名 + 同一线路最多两条 A 记录」，**按线路算，不是按主机名算**：
 
 | 配置 | 总 A 记录数 | 单个访客实际拿到的 |
-| --- | --- | --- |
+| --- | :---: | :---: |
 | 只有默认 | 2 | 2 |
 | 默认 + 电信 + 联通 + 移动 | 8 | 2（自己线路的那两条） |
 
@@ -215,33 +281,25 @@ cdn.example.com  联通  → HKG,NRT      联通两条路都还行，取并集
 
 **探针回传的结果按不可信输入处理。** IP 必须是合法 IPv4（A 记录不认 v6）、去重、数值钳位、机房码只接受 3 位大写字母。
 
-## 界面
+## 支持的 DNS 服务商
 
-配色参照 Material Design 3，但没照抄那套四十多个 token，每套主题只声明四个种子色（primary、secondary、tertiary、error），其余 surface、border、文字色全部用 `color-mix()` 从种子算出来，浅色面是主色混白 5%，深色面是主色混近黑 8%，这就是 MD3 的 tonal surface
-
-换主题只改四个变量，整个界面自动跟着走
-
-内置七套配色（默认翡翠）加明暗模式，左下角随时切：
-
-![主题与外观](docs/theme-menu.png)
-
-深色模式下所有 surface 也跟着种子色走，不是简单反色：
-
-![深色模式](docs/theme-dark.png)
-
-窄屏下侧边栏自动收成图标栏，表格按优先级隐藏次要列，手机上「域名、状态、操作」永远可见，不用横向滚动才能点到操作
+| 类别 | 服务商 |
+| :--- | :--- |
+| **国内** | 腾讯云 DNSPod · 阿里云云解析 · 华为云云解析 · 百度智能云 DNS |
+| **海外** | Cloudflare · GoDaddy · Porkbun · NameSilo · ClouDNS · deSEC · NS1 · Gcore DNS · Vercel DNS · Name.com · Spaceship |
+| **兜底** | 自定义 Webhook（只下发，不回读） |
 
 ## 部署
 
-**Docker**（推荐）：上面的三分钟版本，Caddy 自动申请证书，SSE 需要关闭缓冲，`deploy/Caddyfile` 里已经配好 `flush_interval -1`
+### Docker
 
-懒得本地构建的话，CI 会把多架构镜像推到 `ghcr.io/whohhnb/cf-ip-optimizer`：
+推荐，也就是上面的三分钟版本。Caddy 自动申请证书，SSE 需要关闭缓冲，`deploy/Caddyfile` 里已经配好 `flush_interval -1`。
 
-```bash
-docker pull ghcr.io/whohhnb/cf-ip-optimizer:latest
-```
+改了代码要自己构建就用 `docker compose up -d --build`；只是跑起来的话直接拉 `ghcr.io/whohhnb/cf-ip-optimizer:latest`，amd64 / arm64 都有。
 
-**二进制**：下载 Release 包，或者自己编
+### 二进制
+
+下载 Release 包，或者自己编：
 
 ```bash
 cd web && npm ci && npm run build && cd ..
@@ -250,11 +308,32 @@ cd backend && CGO_ENABLED=0 go build -trimpath \
   -o ../dist/edgepilot .
 ```
 
-必须**先编前端再编后端**，`go:embed` 把前端打进二进制，目录不存在会直接编译失败，装了 make 的话 `make build` 就是这两步
+必须**先编前端再编后端**，`go:embed` 把前端打进二进制，目录不存在会直接编译失败。装了 make 的话 `make build` 就是这两步。
 
-**systemd**：模板在 `deploy/edgepilot.service`
+**systemd** 的模板在 `deploy/edgepilot.service`，改掉 `WorkingDirectory`、`PILOT_DATA_DIR` 和 `PILOT_SECRET` 就能用；它跑在独立的 `edgepilot` 用户下，记得让数据目录对该用户可写。
 
-配置全部走环境变量：
+### 反向代理与真实 IP
+
+套了 CDN 的话，程序优先读 CDN 在边缘写入的真实 IP 头（EdgeOne 的 `EO-Connecting-IP`、Cloudflare 的 `CF-Connecting-IP`）。这比 `X-Forwarded-For` 可靠：XFF 是一条链，最右一条是「最后一跳」的地址，CDN 后面再套一层 nginx 就会取到节点 IP。
+
+| CDN | 头名 | 默认已包含 |
+| --- | --- | :---: |
+| 腾讯云 EdgeOne | `EO-Connecting-IP` | ✅ |
+| Cloudflare | `CF-Connecting-IP` | ✅ |
+| Akamai / Cloudflare 企业版 | `True-Client-IP` | ✅ |
+| Fastly | `Fastly-Client-IP` | ✅ |
+| 阿里云 CDN / 华为云 CDN / 自建 nginx | 只有 `X-Forwarded-For` | 回退逻辑 |
+
+只给 `X-Forwarded-For` 的 CDN 要注意：如果源站前面**还有一层代理**，最右一条会是 CDN 节点地址。这种情况要么让源站直接接收 CDN 回源，要么用 CDN 提供的专用真实 IP 头（没有的话就在中间那层代理上做 `real_ip` 还原）。
+
+> [!WARNING]
+> 前提是源站只能由 CDN 回源（安全组放行 CDN 回源段）。否则绕过 CDN 直连源站的人可以伪造这个头，和伪造 `X-Forwarded-For` 一样能绕开登录限流。
+
+**探针**部署在电信 / 联通 / 移动的机器上，只需要能**主动访问**面板的 HTTPS 端口（出站即可，不用开入站），每 5 秒拉一次任务、每 30 秒发一次心跳。
+
+## 配置
+
+全部走环境变量：
 
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
@@ -264,27 +343,12 @@ cd backend && CGO_ENABLED=0 go build -trimpath \
 | `PILOT_BASE_URL` | 空 | 对外地址，决定 Cookie 要不要加 `Secure` |
 | `PILOT_TRUST_PROXY` | `false` | 面板在反向代理后面时设为 `true`，否则日志与登录限流看到的是代理地址；直接对外提供服务时保持 `false`，不然这些头可被伪造 |
 | `PILOT_CLIENT_IP_HEADER` | `EO-Connecting-IP,CF-Connecting-IP,True-Client-IP,Fastly-Client-IP` | CDN 写入的真实 IP 头，按顺序取第一个合法的。用其他 CDN 时按它文档里的头名改 |
-
-**套了 CDN 的话**，程序优先读 CDN 在边缘写入的真实 IP 头（EdgeOne 的 `EO-Connecting-IP`、Cloudflare 的 `CF-Connecting-IP`）。这比 `X-Forwarded-For` 可靠：XFF 是一条链，最右一条是「最后一跳」的地址，CDN 后面再套一层 nginx 就会取到节点 IP。
-
-常见 CDN 的真实 IP 头：
-
-| CDN | 头名 | 默认已包含 |
-| --- | --- | --- |
-| 腾讯云 EdgeOne | `EO-Connecting-IP` | ✅ |
-| Cloudflare | `CF-Connecting-IP` | ✅ |
-| Akamai / Cloudflare 企业版 | `True-Client-IP` | ✅ |
-| Fastly | `Fastly-Client-IP` | ✅ |
-| 阿里云 CDN / 华为云 CDN / 自建 nginx | 只有 `X-Forwarded-For` | 回退逻辑 |
-
-只给 `X-Forwarded-For` 的 CDN 要注意：如果源站前面**还有一层代理**，最右一条会是 CDN 节点地址。这种情况要么让源站直接接收 CDN 回源，要么用 CDN 提供的专用真实 IP 头（没有的话就在中间那层代理上做 `real_ip` 还原）。
-
-> 前提是源站只能由 CDN 回源（安全组放行 CDN 回源段）。否则绕过 CDN 直连源站的人可以伪造这个头，和伪造 `X-Forwarded-For` 一样能绕开登录限流。
-
-配置也可以写在**工作目录或可执行文件同目录**的 `.env` 里，启动时自动加载。**已存在的环境变量优先**——systemd 的 `Environment=` 和 docker 的 `-e` 依然会覆盖文件里的值。启动日志会打印实际加载了哪个文件。
 | `PILOT_LOG_LEVEL` | `info` | 调成 `debug` 能看到每个扫描阶段和调度器巡检 |
 
-**探针**：部署在电信 / 联通 / 移动的机器上，只需要能**主动访问**面板的 HTTPS 端口（出站即可，不用开入站），每 5 秒拉一次任务、每 30 秒发一次心跳
+> [!IMPORTANT]
+> `PILOT_SECRET` 同时用于签发登录态和加密 DNS 凭据。丢了它，已经保存的凭据就解不开，只能重新填一遍。
+
+配置也可以写在**工作目录或可执行文件同目录**的 `.env` 里，启动时自动加载。**已存在的环境变量优先**——systemd 的 `Environment=` 和 docker 的 `-e` 依然会覆盖文件里的值。启动日志会打印实际加载了哪个文件。
 
 ## 忘记密码
 
@@ -317,17 +381,10 @@ docker compose exec edgepilot /app/edgepilot admin random
 
 存在多个管理员时需要用 `--email` 指定是哪一个。
 
+> [!NOTE]
 > 这条只针对管理员账号。普通用户忘了密码目前只能由管理员用同样的方式重置，面板里还没有对应入口。
 
-## 前置条件
-
-工具只负责「测速 + 写 A 记录」，两头得自己准备好
-
-**Cloudflare 侧**：域名必须已经在 CF 上生效（常规接入、CNAME 接入、SaaS 自定义主机名都行），没生效的话把 A 记录指向 CF 边缘 IP 只会拿到 403，测速时会用你的域名做 SNI，所以证书得先签好
-
-**DNS 侧**：NS 托管在你选的服务商上，账号有该域名的解析读写权限，建议单独建一个只有解析权限的子账号，别用主账号密钥
-
-## 踩过的坑
+## 常见问题
 
 | 现象 | 原因 |
 | --- | --- |
@@ -336,6 +393,7 @@ docker compose exec edgepilot /app/edgepilot admin random
 | `Invalid request headers` | Cloudflare Token 无效，或缺 Zone.DNS 编辑权限 |
 | 页面一直「扫描中」 | 反代把 SSE 缓冲了，检查 `proxy_buffering off` 或 `flush_interval -1` |
 | 解析改了但站点没变 | 本地 DNS 缓存，等 TTL 过期 |
+| 凭据解密失败 | `PILOT_SECRET` 和保存凭据时用的不是同一个，换回去或重填凭据 |
 
 ## 开发
 
@@ -345,9 +403,9 @@ make test    # go vet 加 go test
 make fmt
 ```
 
-前后端分离调试：`cd backend && go run .` 加 `cd web && npm run dev`，Vite 已配好 `/api` 代理
+前后端分离调试：`cd backend && go run .` 加 `cd web && npm run dev`，Vite 已配好 `/api` 代理。
 
-**发版**：`git tag v1.0.0 && git push origin v1.0.0`，CI 跑 `go vet` 和 `go test -race`，交叉编译五个平台的压缩包，推 `linux/amd64` 加 `linux/arm64` 镜像到 ghcr，最后用自动生成的 release notes 发版，带 `-` 的 tag（如 `v1.1.0-rc1`）会标成预发布
+**发版**：`git tag v1.0.0 && git push origin v1.0.0`。CI 跑 `go vet` 和 `go test -race`，交叉编译五个平台的压缩包，推 `linux/amd64` 加 `linux/arm64` 镜像到 ghcr，最后用自动生成的 release notes 发版；带 `-` 的 tag（如 `v1.1.0-rc1`）会标成预发布。
 
 ```
 backend/
@@ -366,10 +424,10 @@ web/
 deploy/                Caddyfile、systemd
 ```
 
-## License
+## 许可
 
 [AGPL-3.0](LICENSE) © 2026 whohhnb
 
-自用、修改、分发都行，改完的代码同样以 AGPL-3.0 开源，**通过网络对外提供服务也算分发**，拿它做收费 SaaS 需要公开你的修改，要闭源商用联系我拿商业授权
+自用、修改、分发都行，改完的代码同样以 AGPL-3.0 开源，**通过网络对外提供服务也算分发**。拿它做收费 SaaS 需要公开你的修改，要闭源商用联系我拿商业授权。
 
-第三方组件的许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)
+第三方组件的许可见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。

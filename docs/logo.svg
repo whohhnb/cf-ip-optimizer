@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="EdgePilot">
+  <defs>
+    <linearGradient id="edgepilot" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f8f5f"/>
+      <stop offset="1" stop-color="#166b46"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="30" fill="url(#edgepilot)"/>
+  <g transform="translate(16 16) scale(4)">
+    <polygon points="3 11 22 2 13 21 11 13 3 11" fill="#ffffff"/>
+  </g>
+</svg>
