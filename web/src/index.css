@@ -228,3 +228,52 @@
     @apply font-sans;
     }
 }
+
+/*
+ * 全局滚动条兜底。
+ *
+ * ScrollArea 是「按容器用」的组件，只有被它包住的区域才有自带的细滚动条；
+ * 弹窗、下拉列表、表格横向溢出这些地方一个个包不现实。这里给原生滚动条
+ * 套上同款外观（前景色 25%、圆角、约 10px），视觉上跟组件那条对齐。
+ *
+ * 两条路径，浏览器只会走其中一条：
+ *   - scrollbar-width / scrollbar-color 是标准属性，Chrome 121+、Firefox、
+ *     Safari 18.2+ 都认；这些浏览器一旦设了标准属性，会直接忽略
+ *     ::-webkit-scrollbar，所以下面那组不会打架，只是老内核的兜底。
+ *   - 老 Chromium / 老 Safari 不认标准属性，走 ::-webkit-scrollbar。
+ *
+ * 放在 @layer base 里是必须的：base-ui 给 ScrollArea 的 viewport 加了
+ * .base-ui-disable-scrollbar { scrollbar-width: none }，那是无层级样式，
+ * 按 CSS 层叠规则无层级永远赢过分层，所以组件区域仍然是「只有组件那条」，
+ * 不会出现原生 + 组件两条并排。
+ */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--foreground) 25%, transparent) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    border: 3px solid transparent;
+    border-radius: 9999px;
+    background-clip: content-box;
+    background-color: color-mix(in oklab, var(--foreground) 25%, transparent);
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background-color: color-mix(in oklab, var(--foreground) 40%, transparent);
+  }
+
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+}
