@@ -96,6 +96,9 @@ func main() {
 		}
 		logx.Infof(0, 0, "EdgePilot 边缘领航 %s · Cloudflare 优选 IP 调度", ver)
 		logx.Infof(0, 0, "监听地址 %s · 数据目录 %s · 日志级别 %s", cfg.Addr, cfg.DataDir, cfg.LogLevel)
+		if !cfg.TrustProxy {
+			logx.Infof(0, 0, "未开启 PILOT_TRUST_PROXY：若面板在反向代理后面，日志里的客户端 IP 会记成代理地址")
+		}
 		if n, _ := st.CountUsers(); n == 0 {
 			logx.Infof(0, 0, "首次启动: 请打开首页注册第一个账号（将自动成为管理员）")
 		} else {

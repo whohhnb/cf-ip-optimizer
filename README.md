@@ -262,6 +262,7 @@ cd backend && CGO_ENABLED=0 go build -trimpath \
 | `PILOT_DATA_DIR` | `./data` | 数据目录，**不会写到用户目录** |
 | `PILOT_SECRET` | 自动生成 | JWT 签名加凭据加密，**定了就别改**，改了旧凭据要重填 |
 | `PILOT_BASE_URL` | 空 | 对外地址，决定 Cookie 要不要加 `Secure` |
+| `PILOT_TRUST_PROXY` | `false` | 面板在反向代理后面时设为 `true`，否则日志与登录限流看到的是代理地址；直接对外提供服务时保持 `false`，不然 `X-Forwarded-For` 可被伪造 |
 | `PILOT_LOG_LEVEL` | `info` | 调成 `debug` 能看到每个扫描阶段和调度器巡检 |
 
 **探针**：部署在电信 / 联通 / 移动的机器上，只需要能**主动访问**面板的 HTTPS 端口（出站即可，不用开入站），每 5 秒拉一次任务、每 30 秒发一次心跳

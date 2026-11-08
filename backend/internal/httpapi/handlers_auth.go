@@ -195,10 +195,15 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 
 // clientIP 只有显式开启 PILOT_TRUST_PROXY 时才采信 X-Forwarded-For。
 // 否则攻击者随手伪造该头即可绕开登录限流、并污染审计日志。
+//
+// 取最右一条而不是最左：反向代理是把自己的对端地址**追加**到末尾，
+// 客户端自带的伪造值留在左边。nginx 的 $proxy_add_x_forwarded_for 就是
+// 这个行为，Caddy 配 header_up 则是整条覆盖——两种情况取最右都对。
 func (s *Server) clientIP(r *http.Request) string {
 	if s.cfg.TrustProxy {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			return strings.TrimSpace(strings.Split(xff, ",")[0])
+			parts := strings.Split(xff, ",")
+			return strings.TrimSpace(parts[len(parts)-1])
 		}
 	}
 	host := r.RemoteAddr

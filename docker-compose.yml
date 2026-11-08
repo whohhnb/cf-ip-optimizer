@@ -10,6 +10,8 @@ services:
       PILOT_ADDR: ":8080"
       PILOT_DATA_DIR: "/data"
       PILOT_BASE_URL: "https://${PILOT_DOMAIN:-edgepilot.example.com}"
+      # 这个 compose 里必然有 Caddy 在前面，不开的话日志里的客户端 IP 全是代理地址
+      PILOT_TRUST_PROXY: "true"
       # 生产环境务必固定，重启后保持不变（影响登录态与凭据解密）
       PILOT_SECRET: "${PILOT_SECRET:?请在 .env 中设置 PILOT_SECRET}"
       TZ: "Asia/Shanghai"
