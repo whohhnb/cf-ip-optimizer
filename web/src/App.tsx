@@ -47,7 +47,9 @@ function Shell({ children }: { children: ReactNode }) {
         </header>
         <div className="min-h-0 flex-1">
           <ScrollArea className="h-full">
-            <main className="p-4 md:p-6">{children}</main>
+            {/* SidebarInset 本身就是 <main>，这里不能再套一个 main，
+                否则文档里会出现嵌套的两块 main 地标 */}
+            <div className="p-4 md:p-6">{children}</div>
           </ScrollArea>
         </div>
       </SidebarInset>
