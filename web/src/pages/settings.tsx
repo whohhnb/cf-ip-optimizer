@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardFooter,
@@ -44,6 +45,7 @@ const numericFields: { key: string; label: string; hint: string; min: number; ma
 export default function SettingsPage() {
   const { user } = useAuth()
   const [values, setValues] = useState<Record<string, string>>({})
+  const [defaults, setDefaults] = useState<Record<string, string>>({})
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -52,6 +54,7 @@ export default function SettingsPage() {
     try {
       const [s, u] = await Promise.all([api.settings(), api.users()])
       setValues(s.settings ?? {})
+      setDefaults(s.defaults ?? {})
       setUsers(u.users ?? [])
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载失败")
@@ -123,6 +126,23 @@ export default function SettingsPage() {
                 扫描引擎
               </CardTitle>
               <CardDescription>调优延迟探测与下载测速的强度</CardDescription>
+              <CardAction>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    // 只填回表单，不直接落库：用户还得点保存，避免误触
+                    setValues((v) => {
+                      const next = { ...v }
+                      for (const k of Object.keys(defaults)) next[k] = defaults[k]
+                      return next
+                    })
+                    toast.info("已填入默认值，点保存后生效")
+                  }}
+                >
+                  恢复默认
+                </Button>
+              </CardAction>
             </CardHeader>
             <CardContent className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
               {numericFields.map((f) => (

@@ -559,7 +559,16 @@ export default function DomainsPage() {
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent
+          className="sm:max-w-lg"
+          onKeyDown={(e) => {
+            // 输入框里回车直接提交；文本框（备注之类）保持换行
+            if (e.key === "Enter" && !e.shiftKey && (e.target as HTMLElement).tagName === "INPUT") {
+              e.preventDefault()
+              void save()
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle>{editing ? "编辑域名" : "添加域名"}</DialogTitle>
             <DialogDescription>

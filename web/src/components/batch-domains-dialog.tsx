@@ -161,7 +161,16 @@ export function BatchDomainsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
+      <DialogContent
+        className="sm:max-w-2xl"
+          onKeyDown={(e) => {
+            // 输入框里回车直接提交；文本框（备注之类）保持换行
+            if (e.key === "Enter" && !e.shiftKey && (e.target as HTMLElement).tagName === "INPUT") {
+              e.preventDefault()
+              void submit()
+            }
+          }}
+      >
         <DialogHeader>
           <DialogTitle>按线路批量添加</DialogTitle>
           <DialogDescription>

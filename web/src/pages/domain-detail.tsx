@@ -68,6 +68,9 @@ export default function DomainDetailPage() {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [results, setResults] = useState<ScanResult[]>([])
   const [siblings, setSiblings] = useState<DomainRow[]>([])
+  // 结果表支持点表头排序，默认按评分降序（和原来的顺序一致）
+  const [sortKey, setSortKey] = useState<string>("score")
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc")
   const [jobs, setJobs] = useState<ScanJob[]>([])
   const [records, setRecords] = useState<LiveRecord[]>([])
   const [recordsError, setRecordsError] = useState<string | null>(null)
@@ -207,6 +210,47 @@ export default function DomainDetailPage() {
       return byRecord.get(recordId) ?? byValue.get(value)
     },
     [managedIndex, detail?.provider.setBased],
+  )
+
+  const sortedResults = useMemo(() => {
+    const num = (r: ScanResult, k: string) =>
+      k === "latency" ? r.latency
+      : k === "jitter" ? r.jitter
+      : k === "loss" ? r.loss
+      : k === "httpRtt" ? r.httpRtt
+      : k === "speed" ? r.speed
+      : r.score
+    const arr = [...results]
+    arr.sort((a, b) => {
+      const d = num(a, sortKey) - num(b, sortKey)
+      return sortDir === "asc" ? d : -d
+    })
+    return arr
+  }, [results, sortKey, sortDir])
+
+  const sortHead = (key: string, label: string, cls: string) => (
+    <TableHead className={cls}>
+      <button
+        type="button"
+        onClick={() => {
+          if (sortKey === key) {
+            setSortDir((d) => (d === "asc" ? "desc" : "asc"))
+          } else {
+            // 延迟/抖动/丢包/往返都是越低越好，速度/评分越高越好；
+            // 点一列默认把「好的」排前面，符合直觉
+            setSortKey(key)
+            setSortDir(key === "speed" || key === "score" ? "desc" : "asc")
+          }
+        }}
+        title={`按${label}排序`}
+        className={`inline-flex items-center gap-0.5 hover:text-foreground ${
+          sortKey === key ? "text-foreground" : ""
+        }`}
+      >
+        {label}
+        <span className="text-[10px]">{sortKey === key ? (sortDir === "asc" ? "↑" : "↓") : ""}</span>
+      </button>
+    </TableHead>
   )
 
   if (loading) {
@@ -466,17 +510,17 @@ export default function DomainDetailPage() {
                     <TableRow>
                       <TableHead className="w-12">#</TableHead>
                       <TableHead>IP</TableHead>
-                      <TableHead className="text-right">延迟</TableHead>
-                      <TableHead className="hidden text-right lg:table-cell">抖动</TableHead>
-                      <TableHead className="hidden text-right lg:table-cell">丢包</TableHead>
-                      <TableHead className="hidden text-right lg:table-cell">HTTP 往返</TableHead>
-                      <TableHead className="hidden text-right md:table-cell">下载</TableHead>
+                      {sortHead("latency", "延迟", "text-right")}
+                      {sortHead("jitter", "抖动", "hidden text-right lg:table-cell")}
+                      {sortHead("loss", "丢包", "hidden text-right lg:table-cell")}
+                      {sortHead("httpRtt", "HTTP 往返", "hidden text-right lg:table-cell")}
+                      {sortHead("speed", "下载", "hidden text-right md:table-cell")}
                       <TableHead className="hidden md:table-cell">机房</TableHead>
-                      <TableHead className="text-right">评分</TableHead>
+                      {sortHead("score", "评分", "text-right")}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {results.slice(0, 30).map((r, i) => (
+                    {sortedResults.slice(0, 30).map((r, i) => (
                       <TableRow key={r.id}>
                         <TableCell className="text-muted-foreground tabular-nums">
                           {i + 1}

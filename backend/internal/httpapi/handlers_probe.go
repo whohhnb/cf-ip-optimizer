@@ -93,7 +93,9 @@ func (s *Server) handleListProbes(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusInternalServerError, "读取探针失败")
 		return
 	}
-	ok(w, map[string]any{"probes": list})
+	// 绑定数单独给一个 map，不改变 probes 的结构，避免前端全都要改
+	counts, _ := s.st.DomainCountByProbe(u.ID)
+	ok(w, map[string]any{"probes": list, "domainCounts": counts})
 }
 
 func (s *Server) handleCreateProbe(w http.ResponseWriter, r *http.Request) {

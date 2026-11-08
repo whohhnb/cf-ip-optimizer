@@ -279,7 +279,8 @@ export const api = {
   deleteAccount: (id: number) =>
     http<{ ok: boolean }>(`/api/accounts/${id}`, { method: "DELETE" }),
 
-  probes: () => http<{ probes: Probe[] }>("/api/probes"),
+  probes: () =>
+    http<{ probes: Probe[]; domainCounts: Record<string, number> }>("/api/probes"),
 
   createProbe: (body: { name: string; line: string; concurrency: number }) =>
     http<{ probe: Probe; token: string }>("/api/probes", {

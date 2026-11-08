@@ -176,9 +176,32 @@ func (s *Store) DomainByIDInternal(id int64) (*model.Domain, error) {
 // CountDomainsByProbe guards probe deletion: dropping a probe that domains
 // still point at would leave them unable to scan with no obvious cause.
 func (s *Store) CountDomainsByProbe(probeID int64) (int, error) {
+	// 从绑定表算，不能看 domains.probe_id——那是「首个探针」的冗余字段，
+	// 一个域名绑了两个探针时，第二个探针的删除保护会失效
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM domains WHERE probe_id=?`, probeID).Scan(&n)
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM domain_probes WHERE probe_id=?`, probeID).Scan(&n)
 	return n, err
+}
+
+// DomainCountByProbe 返回每个探针服务了多少条线路，探针列表要显示这个数
+func (s *Store) DomainCountByProbe(userID int64) (map[int64]int, error) {
+	rows, err := s.db.Query(`SELECT dp.probe_id, COUNT(*) FROM domain_probes dp
+		JOIN domains d ON d.id = dp.domain_id
+		WHERE d.user_id=? GROUP BY dp.probe_id`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]int{}
+	for rows.Next() {
+		var pid int64
+		var n int
+		if err := rows.Scan(&pid, &n); err != nil {
+			return nil, err
+		}
+		out[pid] = n
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) UpdateDomain(id, userID int64, in DomainInput) error {

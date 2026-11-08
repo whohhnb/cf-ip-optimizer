@@ -73,6 +73,7 @@ function relative(iso: string | null) {
 
 export default function ProbesPage() {
   const [probes, setProbes] = useState<Probe[]>([])
+  const [counts, setCounts] = useState<Record<string, number>>({})
   const [loading, setLoading] = useState(true)
 
   const [open, setOpen] = useState(false)
@@ -90,6 +91,7 @@ export default function ProbesPage() {
     try {
       const res = await api.probes()
       setProbes(res.probes ?? [])
+      setCounts(res.domainCounts ?? {})
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载失败")
     } finally {
@@ -251,6 +253,12 @@ export default function ProbesPage() {
                       <dd className="font-mono">{p.version || "—"}</dd>
                     </div>
                     <div className="flex justify-between gap-2">
+                      <dt>服务线路</dt>
+                      <dd className="tabular-nums">
+                        {counts[p.id] ? `${counts[p.id]} 条` : "未绑定"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
                       <dt>并发上限</dt>
                       <dd className="tabular-nums">
                         {p.concurrency > 0 ? p.concurrency : "跟随全局"}
@@ -279,7 +287,16 @@ export default function ProbesPage() {
       )}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent
+          className="sm:max-w-md"
+          onKeyDown={(e) => {
+            // 输入框里回车直接提交；文本框（备注之类）保持换行
+            if (e.key === "Enter" && !e.shiftKey && (e.target as HTMLElement).tagName === "INPUT") {
+              e.preventDefault()
+              void save()
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle>{editing ? `编辑探针「${editing.name}」` : "添加探针"}</DialogTitle>
             <DialogDescription>
