@@ -401,6 +401,13 @@ func (s *Server) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, msg)
 		return
 	}
+	if dup, err := s.st.DomainConflict(u.ID, in.RootDomain, in.SubDomain, in.RecordLine, 0); err != nil {
+		fail(w, http.StatusInternalServerError, "校验失败")
+		return
+	} else if dup {
+		fail(w, http.StatusConflict, "该主机名的「"+in.RecordLine+"」线路已有配置，请直接编辑那一条")
+		return
+	}
 	d, err := s.st.CreateDomain(u.ID, storeDomainInput(in))
 	if err != nil {
 		fail(w, http.StatusInternalServerError, "创建失败")
@@ -483,6 +490,13 @@ func (s *Server) handleUpdateDomain(w http.ResponseWriter, r *http.Request) {
 	}
 	if msg := s.checkProbe(u, in.ProbeID); msg != "" {
 		fail(w, http.StatusBadRequest, msg)
+		return
+	}
+	if dup, err := s.st.DomainConflict(u.ID, in.RootDomain, in.SubDomain, in.RecordLine, id); err != nil {
+		fail(w, http.StatusInternalServerError, "校验失败")
+		return
+	} else if dup {
+		fail(w, http.StatusConflict, "该主机名的「"+in.RecordLine+"」线路已有配置")
 		return
 	}
 	if err := s.st.UpdateDomain(id, u.ID, storeDomainInput(in)); err != nil {

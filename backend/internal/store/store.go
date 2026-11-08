@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS probes (
   created_at   INTEGER NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_domains_host_line ON domains(user_id, root_domain, sub_domain, record_line);
+
 CREATE TABLE IF NOT EXISTS probe_tasks (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
   probe_id    INTEGER NOT NULL REFERENCES probes(id) ON DELETE CASCADE,

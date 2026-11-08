@@ -106,6 +106,17 @@ func (s *Store) DomainByID(id, userID int64) (*model.Domain, error) {
 	return d, err
 }
 
+// DomainConflict reports whether this user already has a config for the same
+// host and the same record line. Two configs on one line would both think they
+// own the same record set and overwrite each other on every scan.
+func (s *Store) DomainConflict(userID int64, root, sub, line string, excludeID int64) (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM domains
+		WHERE user_id=? AND root_domain=? AND sub_domain=? AND record_line=? AND id<>?`,
+		userID, root, sub, line, excludeID).Scan(&n)
+	return n > 0, err
+}
+
 // DomainByIDInternal fetches a domain without an ownership filter. Only the
 // probe result path uses it: the agent authenticates as itself, and the domain
 // it scanned was already authorized when the task was queued.
