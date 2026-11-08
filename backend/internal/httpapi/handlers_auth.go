@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -201,6 +202,17 @@ func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
 // 这个行为，Caddy 配 header_up 则是整条覆盖——两种情况取最右都对。
 func (s *Server) clientIP(r *http.Request) string {
 	if s.cfg.TrustProxy {
+		// CDN 在边缘写入的专用头最可靠：它记录的是「连到边缘的那个人」，
+		// 不管中间又套了几层代理都不会被覆盖
+		for _, h := range s.cfg.ClientIPHeaders {
+			v := strings.TrimSpace(r.Header.Get(h))
+			if v == "" {
+				continue
+			}
+			if ip := net.ParseIP(v); ip != nil {
+				return ip.String()
+			}
+		}
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			parts := strings.Split(xff, ",")
 			return strings.TrimSpace(parts[len(parts)-1])

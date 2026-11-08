@@ -16,6 +16,10 @@ type Config struct {
 	BaseURL    string
 	LogLevel   string
 	TrustProxy bool
+	// ClientIPHeaders 是 CDN 在边缘写入的真实客户端 IP 头，按顺序取第一个
+	// 合法的。它们由 CDN 生成、客户端无法伪造，比 X-Forwarded-For 可靠得多：
+	// XFF 是一条链，最右一条是「最后一跳代理」的地址，多一层代理就取错了。
+	ClientIPHeaders []string
 
 	// EnvFile is the .env that was auto-loaded, empty when none was found.
 	// EnvFileVars counts the variables it actually applied.
@@ -111,13 +115,27 @@ func Load() Config {
 		trust = v
 	}
 
+	// 只收「CDN 在边缘写入、客户端改不了」的头。X-Real-IP 故意不在默认值里：
+	// nginx 的 proxy_set_header X-Real-IP $remote_addr 写的是**对端**地址，
+	// 在 CDN 后面那就是节点 IP，正是要避免的结果
+	ipHeaders := []string{"EO-Connecting-IP", "CF-Connecting-IP", "True-Client-IP", "Fastly-Client-IP"}
+	if v := env("PILOT_CLIENT_IP_HEADER", ""); v != "" {
+		ipHeaders = nil
+		for _, h := range strings.Split(v, ",") {
+			if h = strings.TrimSpace(h); h != "" {
+				ipHeaders = append(ipHeaders, h)
+			}
+		}
+	}
+
 	return Config{
-		Addr:       env("PILOT_ADDR", ":8080"),
-		DataDir:    dataDir,
-		Secret:     secret,
-		BaseURL:    strings.TrimRight(env("PILOT_BASE_URL", ""), "/"),
-		LogLevel:   env("PILOT_LOG_LEVEL", "info"),
-		TrustProxy: trust,
+		Addr:            env("PILOT_ADDR", ":8080"),
+		DataDir:         dataDir,
+		Secret:          secret,
+		BaseURL:         strings.TrimRight(env("PILOT_BASE_URL", ""), "/"),
+		LogLevel:        env("PILOT_LOG_LEVEL", "info"),
+		TrustProxy:      trust,
+		ClientIPHeaders: ipHeaders,
 
 		EnvFile:     envFile,
 		EnvFileVars: envFileVars,

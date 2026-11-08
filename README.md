@@ -262,7 +262,24 @@ cd backend && CGO_ENABLED=0 go build -trimpath \
 | `PILOT_DATA_DIR` | `./data` | 数据目录，**不会写到用户目录** |
 | `PILOT_SECRET` | 自动生成 | JWT 签名加凭据加密，**定了就别改**，改了旧凭据要重填 |
 | `PILOT_BASE_URL` | 空 | 对外地址，决定 Cookie 要不要加 `Secure` |
-| `PILOT_TRUST_PROXY` | `false` | 面板在反向代理后面时设为 `true`，否则日志与登录限流看到的是代理地址；直接对外提供服务时保持 `false`，不然 `X-Forwarded-For` 可被伪造 |
+| `PILOT_TRUST_PROXY` | `false` | 面板在反向代理后面时设为 `true`，否则日志与登录限流看到的是代理地址；直接对外提供服务时保持 `false`，不然这些头可被伪造 |
+| `PILOT_CLIENT_IP_HEADER` | `EO-Connecting-IP,CF-Connecting-IP,True-Client-IP,Fastly-Client-IP` | CDN 写入的真实 IP 头，按顺序取第一个合法的。用其他 CDN 时按它文档里的头名改 |
+
+**套了 CDN 的话**，程序优先读 CDN 在边缘写入的真实 IP 头（EdgeOne 的 `EO-Connecting-IP`、Cloudflare 的 `CF-Connecting-IP`）。这比 `X-Forwarded-For` 可靠：XFF 是一条链，最右一条是「最后一跳」的地址，CDN 后面再套一层 nginx 就会取到节点 IP。
+
+常见 CDN 的真实 IP 头：
+
+| CDN | 头名 | 默认已包含 |
+| --- | --- | --- |
+| 腾讯云 EdgeOne | `EO-Connecting-IP` | ✅ |
+| Cloudflare | `CF-Connecting-IP` | ✅ |
+| Akamai / Cloudflare 企业版 | `True-Client-IP` | ✅ |
+| Fastly | `Fastly-Client-IP` | ✅ |
+| 阿里云 CDN / 华为云 CDN / 自建 nginx | 只有 `X-Forwarded-For` | 回退逻辑 |
+
+只给 `X-Forwarded-For` 的 CDN 要注意：如果源站前面**还有一层代理**，最右一条会是 CDN 节点地址。这种情况要么让源站直接接收 CDN 回源，要么用 CDN 提供的专用真实 IP 头（没有的话就在中间那层代理上做 `real_ip` 还原）。
+
+> 前提是源站只能由 CDN 回源（安全组放行 CDN 回源段）。否则绕过 CDN 直连源站的人可以伪造这个头，和伪造 `X-Forwarded-For` 一样能绕开登录限流。
 
 配置也可以写在**工作目录或可执行文件同目录**的 `.env` 里，启动时自动加载。**已存在的环境变量优先**——systemd 的 `Environment=` 和 docker 的 `-e` 依然会覆盖文件里的值。启动日志会打印实际加载了哪个文件。
 | `PILOT_LOG_LEVEL` | `info` | 调成 `debug` 能看到每个扫描阶段和调度器巡检 |
