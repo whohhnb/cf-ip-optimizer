@@ -33,3 +33,6 @@ go.work.sum
 /artifacts/
 *.tar.gz
 /data/
+# 本地联调用的临时数据目录（含 SQLite 与 secret.key，绝不入库）
+.gs/
+.shot/
