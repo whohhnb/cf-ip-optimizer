@@ -660,7 +660,7 @@ export default function DomainsPage() {
                     : `已选 ${form.probeIds.length} 个探针`}
                 </span>
               </div>
-              <div className="max-h-72 divide-y overflow-y-auto rounded-lg border">
+              <div className="max-h-80 divide-y overflow-y-auto rounded-lg border">
                 <label className="flex cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors hover:bg-muted/50">
                   <Checkbox
                     className="mt-0.5"
