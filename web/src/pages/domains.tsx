@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { Globe2, Loader2, Pencil, Plus, Trash2, Zap } from "lucide-react"
+import { Globe2, ListPlus, Loader2, Pencil, Plus, Trash2, Zap } from "lucide-react"
 import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -49,6 +49,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { BatchDomainsDialog } from "@/components/batch-domains-dialog"
 import { RotationHint } from "@/components/rotation-hint"
 import {
   api,
@@ -118,6 +119,7 @@ export default function DomainsPage() {
   const [form, setForm] = useState<FormState>(emptyForm)
   const [saving, setSaving] = useState(false)
   const [removing, setRemoving] = useState<Domain | null>(null)
+  const [batchOpen, setBatchOpen] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -253,10 +255,16 @@ export default function DomainsPage() {
             为每个域名维护最多 2 条 A 记录，自动指向评分最高的优选 IP
           </p>
         </div>
-        <Button onClick={openCreate}>
-          <Plus />
-          添加域名
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => setBatchOpen(true)}>
+            <ListPlus />
+            按线路批量添加
+          </Button>
+          <Button onClick={openCreate}>
+            <Plus />
+            添加域名
+          </Button>
+        </div>
       </div>
 
       {accounts.length === 0 && !loading ? (
@@ -572,6 +580,15 @@ export default function DomainsPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BatchDomainsDialog
+        open={batchOpen}
+        onOpenChange={setBatchOpen}
+        accounts={accounts}
+        providers={providers}
+        probes={probes}
+        onDone={() => void load()}
+      />
 
       <AlertDialog open={!!removing} onOpenChange={(v) => !v && setRemoving(null)}>
         <AlertDialogContent>
