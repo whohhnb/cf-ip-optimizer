@@ -469,7 +469,7 @@ export default function DomainDetailPage() {
               <CardTitle className="text-base">{detail.provider.label} 实时解析</CardTitle>
               <CardDescription>
                 {detail.provider.noList
-                  ? "该服务商只接收推送、不支持回读，实际记录请到回调脚本侧核对"
+                  ? "该服务商只接收下发、不支持回读，实际记录请到回调脚本侧核对"
                   : detail.provider.setBased
                     ? "该服务商一条记录内含多个值，平台整体回写；非平台托管的记录不会被改动"
                     : "标记为「平台托管」的记录会被自动维护，其余记录不会被动到"}

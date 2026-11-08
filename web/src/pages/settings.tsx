@@ -156,7 +156,7 @@ export default function SettingsPage() {
                 />
                 <p className="text-xs text-muted-foreground">
                   IATA 三字码，逗号分隔。只保留这些机房的节点；全都命中不了会直接判定为无可用节点，
-                  不会悄悄退回全量，免得你以为筛选生效了其实没有
+                  不会悄悄退回全量，免得你以为筛选生效了其实没有。
                 </p>
               </div>
 
@@ -164,7 +164,7 @@ export default function SettingsPage() {
                 <div>
                   <p className="text-sm font-medium">跳过下载测速</p>
                   <p className="text-xs text-muted-foreground">
-                    只按延迟与丢包排序，扫描时间缩短到几分之一。适合 SSH、游戏这类不在乎带宽的场景
+                    只按延迟与丢包排序，扫描时间缩短到几分之一。适合 SSH、游戏这类不在乎带宽的场景。
                   </p>
                 </div>
                 <Switch
@@ -229,7 +229,7 @@ export default function SettingsPage() {
                   <p className="text-sm font-medium">允许内网 Webhook</p>
                   <p className="text-xs text-muted-foreground">
                     默认拦截指向本机、内网和云元数据地址的回调，避免被当成 SSRF 跳板。
-                    确实要回调内网服务时再打开
+                    确实要回调内网服务时再打开。
                   </p>
                 </div>
                 <Switch
@@ -242,7 +242,7 @@ export default function SettingsPage() {
             </CardContent>
             <CardFooter>
               <p className="text-xs text-muted-foreground">
-                提示：TTL 建议保持在 600 秒以上，过低会放大 DNS 接口调用频率。
+                提示：TTL 建议保持在 600 秒以上，过低会放大 DNS 接口调用频率
               </p>
             </CardFooter>
           </Card>
@@ -293,7 +293,7 @@ export default function SettingsPage() {
               </Table>
               <Separator className="my-4" />
               <p className="text-xs text-muted-foreground">
-                删除账号会级联清理其名下的 DNS 凭据、域名配置与扫描历史。
+                删除账号会级联清理其名下的 DNS 账号、域名配置与扫描历史
               </p>
             </CardContent>
           </Card>

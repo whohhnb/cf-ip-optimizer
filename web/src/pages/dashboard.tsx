@@ -164,7 +164,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-xl font-semibold">运行总览</h1>
           <p className="text-sm text-muted-foreground">
-            实时掌握各域名的优选节点与解析下发状态
+            实时掌握各域名的优选 IP 与解析下发状态
           </p>
         </div>
         <Button variant="outline" size="sm" onClick={() => void load()}>
@@ -185,7 +185,7 @@ export default function DashboardPage() {
           title="平均最优延迟"
           value={overview?.avgLatency ? overview.avgLatency.toFixed(0) : "—"}
           unit="ms"
-          hint="近 7 天所有扫描的最优节点均值"
+          hint="近 7 天所有扫描的最优 IP 延迟均值"
           icon={Timer}
           loading={loading}
         />
@@ -200,7 +200,7 @@ export default function DashboardPage() {
         <Metric
           title="今日下发次数"
           value={overview?.pushesToday ?? 0}
-          hint="解析变更次数，跨全部服务商"
+          hint="今天完成下发的扫描任务数，跨全部服务商"
           icon={ServerCog}
           loading={loading}
         />
@@ -212,7 +212,7 @@ export default function DashboardPage() {
             <Activity className="size-4" />
             优选趋势
           </CardTitle>
-          <CardDescription>每次扫描得到的最优节点延迟与下载速度</CardDescription>
+          <CardDescription>每次扫描得到的最优 IP 的延迟与下载速度</CardDescription>
         </CardHeader>
         <CardContent>
           {chartData.length < 2 ? (

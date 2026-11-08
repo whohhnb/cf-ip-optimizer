@@ -46,7 +46,7 @@ const nav = [
   { to: "/", label: "总览", icon: LayoutDashboard },
   { to: "/domains", label: "域名调度", icon: Globe2 },
   { to: "/probes", label: "探针节点", icon: Router },
-  { to: "/accounts", label: "DNS 凭据", icon: KeyRound },
+  { to: "/accounts", label: "DNS 账号", icon: KeyRound },
   { to: "/logs", label: "运行日志", icon: ScrollText },
   { to: "/settings", label: "系统设置", icon: Settings, adminOnly: true },
 ]

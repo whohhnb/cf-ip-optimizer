@@ -80,7 +80,7 @@ export default function LogsPage() {
         <div>
           <h1 className="text-xl font-semibold">运行日志</h1>
           <p className="text-sm text-muted-foreground">
-            扫描、下发、健康巡检与接口异常的完整轨迹，与控制台输出一致
+            扫描、下发、健康巡检与接口异常的完整轨迹；调试级日志与 2xx 请求只输出到控制台
           </p>
         </div>
         <div className="flex items-center gap-2">

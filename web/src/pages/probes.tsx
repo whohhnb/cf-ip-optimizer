@@ -337,7 +337,7 @@ export default function ProbesPage() {
           <DialogHeader>
             <DialogTitle>删除探针「{removing?.name}」？</DialogTitle>
             <DialogDescription>
-              删除后该令牌立即失效。仍有域名绑定它时不允许删除，需要先改绑
+              删除后该令牌立即失效。仍有域名绑定它时不允许删除，需要先改绑。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>

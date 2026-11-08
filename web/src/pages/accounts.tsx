@@ -161,7 +161,7 @@ export default function AccountsPage() {
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h1 className="text-xl font-semibold">DNS 凭据</h1>
+          <h1 className="text-xl font-semibold">DNS 账号</h1>
           <p className="text-sm text-muted-foreground">
             已接入 {providers.length} 家服务商，凭据加密后仅用于写入解析
           </p>
@@ -227,8 +227,8 @@ export default function AccountsPage() {
             <DialogTitle>{editing ? "编辑 DNS 账号" : "添加 DNS 账号"}</DialogTitle>
             <DialogDescription>
               {editing
-                ? "凭据字段留空则保持现有密钥不变；填写后会先校验再替换。"
-                : "选择服务商后按提示填写凭据，保存前会自动校验一次。"}
+                ? "凭据字段留空则保持现有密钥不变；填写后会先校验再替换"
+                : "选择服务商后按提示填写凭据，保存前会自动校验一次"}
             </DialogDescription>
           </DialogHeader>
 
@@ -316,7 +316,7 @@ export default function AccountsPage() {
                 onChange={(e) => setRoot(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                填写后会校验该域名是否在当前账号下，留空则只验证凭据本身。
+                填写后会校验该域名是否在当前账号下，留空则只验证凭据本身
               </p>
             </div>
           </div>
@@ -344,7 +344,7 @@ export default function AccountsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>删除该 DNS 账号？</AlertDialogTitle>
             <AlertDialogDescription>
-              关联的域名调度配置也会一并删除，DNS 服务商上的解析记录保持不变。
+              关联的域名调度配置也会一并删除，DNS 服务商上的解析记录保持不变
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

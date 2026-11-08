@@ -46,7 +46,7 @@ export function RotationHint({ slots = 2, className, showTitle = true, variant =
           单条记录模式
         </div>
         <p className="mt-1.5 text-muted-foreground">
-          只维护 1 条 A 记录，切换瞬间会有最长 TTL 的解析空窗，建议 TTL 调小。
+          只维护 1 条 A 记录，切换瞬间会有最长 TTL 的解析空窗，建议 TTL 调小
         </p>
       </div>
     )
@@ -54,7 +54,7 @@ export function RotationHint({ slots = 2, className, showTitle = true, variant =
 
   const footer = (
     <p className="text-[11px] leading-relaxed text-muted-foreground">
-      任何时刻都至少有 1 条记录指向可用 IP，代价是最优解要等下一轮才完全生效。
+      任何时刻都至少有 1 条记录指向可用 IP，代价是最优解要等下一轮才完全生效
     </p>
   )
 
@@ -75,7 +75,7 @@ export function RotationHint({ slots = 2, className, showTitle = true, variant =
           <Group label="轮次 2" values={["C", "D"]} fresh={2} />
           <Separator orientation="vertical" className="hidden h-6 md:block" />
           <p className="text-[11px] leading-snug text-muted-foreground">
-            任何时刻至少 1 条可用，代价是最优解要等下一轮才完全生效。
+            任何时刻至少 1 条可用，代价是最优解要等下一轮才完全生效
           </p>
         </div>
       </div>

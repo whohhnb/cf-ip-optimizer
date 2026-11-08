@@ -22,7 +22,7 @@ cp .env.example .env      # 填 PILOT_DOMAIN、ACME_EMAIL、PILOT_SECRET
 docker compose up -d --build
 ```
 
-打开 `https://你的域名`，第一个注册的账号自动成为管理员，然后按顺序做三件事：**加 DNS 凭据 → 加域名 → 等它扫完**
+打开 `https://你的域名`，第一个注册的账号自动成为管理员，然后按顺序做三件事：**加 DNS 账号 → 加域名 → 等它扫完**
 
 ![初始化](docs/setup.png)
 
@@ -75,7 +75,7 @@ docker compose up -d --build
 
 ## 关于双 IP
 
-腾讯云同一个主机记录最多两条 A 记录，这是硬限制，所以平台默认维护两条
+腾讯云「同一主机名 + 同一线路」最多两条 A 记录，这是硬限制，所以每条线路默认维护两条（分线路时每条线路各算各的，见下面的「按运营商分线路」）
 
 ![滚动替换](docs/rotation.png)
 
@@ -99,7 +99,7 @@ DNS 厂商的 API 分两类，逐记录型（腾讯云、阿里云、Cloudflare�
 
 这类厂商平台会读回整组、只替换其中一个值、再整体写回，滚动替换照样成立，详情页文案也跟着变，不会出现「两条记录轮流改」这种对不上的描述
 
-Webhook 模式更极端，只接收推送、不支持回读，界面上直接说「该服务商不支持回读记录」，而不是假装列表是空的
+Webhook 模式更极端，只接收下发、不支持回读，界面上直接说「该服务商不支持回读记录」，而不是假装列表是空的
 
 ## 按运营商分线路（探针）
 
@@ -224,6 +224,8 @@ cd backend && CGO_ENABLED=0 go build -trimpath \
 | `PILOT_BASE_URL` | 空 | 对外地址，决定 Cookie 要不要加 `Secure` |
 | `PILOT_LOG_LEVEL` | `info` | 调成 `debug` 能看到每个扫描阶段和调度器巡检 |
 
+**探针**：部署在电信 / 联通 / 移动的机器上，只需要能**主动访问**面板的 HTTPS 端口（出站即可，不用开入站），每 5 秒拉一次任务、每 30 秒发一次心跳
+
 ## 前置条件
 
 工具只负责「测速 + 写 A 记录」，两头得自己准备好
@@ -252,12 +254,14 @@ make fmt
 
 前后端分离调试：`cd backend && go run .` 加 `cd web && npm run dev`，Vite 已配好 `/api` 代理
 
-**发版**：`git tag v1.0.0 && git push origin v1.0.0`，CI 跑 `go vet` 和 `go test`，交叉编译五个平台的压缩包，推 `linux/amd64` 加 `linux/arm64` 镜像到 ghcr，最后用自动生成的 release notes 发版，带 `-` 的 tag（如 `v1.1.0-rc1`）会标成预发布
+**发版**：`git tag v1.0.0 && git push origin v1.0.0`，CI 跑 `go vet` 和 `go test -race`，交叉编译五个平台的压缩包，推 `linux/amd64` 加 `linux/arm64` 镜像到 ghcr，最后用自动生成的 release notes 发版，带 `-` 的 tag（如 `v1.1.0-rc1`）会标成预发布
 
 ```
 backend/
   internal/
+    agent/         探针端：拉任务、跑扫描、回传结果
     dnsprovider/   16 家服务商加记录同步逻辑
+    logx/          控制台与页面共用的日志出口
     scanner/       采样、探测、测速、评分
     scheduler/     定时扫描与健康巡检
     service/       扫描到下发的编排

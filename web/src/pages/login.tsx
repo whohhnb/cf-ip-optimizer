@@ -116,8 +116,8 @@ export default function LoginPage() {
             </CardTitle>
             <CardDescription>
               {cfg?.needsSetup
-                ? "首次部署，第一个注册的账号将自动成为管理员。"
-                : "使用你的账号访问优选调度平台。"}
+                ? "首次部署，第一个注册的账号将自动成为管理员"
+                : "使用你的账号访问优选调度平台"}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -139,7 +139,7 @@ export default function LoginPage() {
               <ShieldCheck />
               <AlertTitle>凭据本地加密</AlertTitle>
               <AlertDescription>
-                DNS SecretKey 使用 AES-256-GCM 加密落库，仅在下发解析时于内存解密。
+                DNS SecretKey 使用 AES-256-GCM 加密落库，仅在下发解析时于内存解密
               </AlertDescription>
             </Alert>
           </CardFooter>
