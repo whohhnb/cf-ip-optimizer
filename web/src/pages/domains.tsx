@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
-import { Globe2, ListPlus, Loader2, Pencil, Plus, Trash2, Zap } from "lucide-react"
+import { Globe2, ListPlus, Loader2, Pencil, Plus, Trash2, TriangleAlert, Zap } from "lucide-react"
 import { toast } from "sonner"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import {
@@ -622,77 +622,102 @@ export default function DomainsPage() {
               </div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="grid gap-2">
-                <Label>解析线路</Label>
-                {lineOptions.length === 0 ? (
-                  <Input value="默认（该服务商不支持分线路）" disabled />
-                ) : (
-                  <Select
-                    value={lineValue}
-                    items={Object.fromEntries(lineOptions.map((l) => [l.value, l.label]))}
-                    onValueChange={(v) => setForm((s) => ({ ...s, recordLine: String(v ?? "") }))}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {lineOptions.map((l) => (
-                        <SelectItem key={l.value} value={l.value}>
-                          {l.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-                <p className="text-xs text-muted-foreground">
-                  {lineOptions.length === 0
-                    ? `${selectedProvider?.label ?? "该服务商"} 不支持按运营商分线路，同一主机名只能有一条记录组`
-                    : "只接管这条线路上的 A 记录，同一主机名可以按线路配多份"}
-                </p>
-              </div>
-              <div className="grid gap-2">
+            <div className="grid gap-2">
+              <Label>解析线路</Label>
+              {lineOptions.length === 0 ? (
+                <Input className="max-w-64" value="默认（该服务商不支持分线路）" disabled />
+              ) : (
+                <Select
+                  value={lineValue}
+                  items={Object.fromEntries(lineOptions.map((l) => [l.value, l.label]))}
+                  onValueChange={(v) => setForm((s) => ({ ...s, recordLine: String(v ?? "") }))}
+                >
+                  <SelectTrigger className="w-full max-w-64">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {lineOptions.map((l) => (
+                      <SelectItem key={l.value} value={l.value}>
+                        {l.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <p className="text-xs text-muted-foreground">
+                {lineOptions.length === 0
+                  ? `${selectedProvider?.label ?? "该服务商"} 不支持按运营商分线路，同一主机名只能有一条记录组`
+                  : "只接管这条线路上的 A 记录，同一主机名可以按线路配多份"}
+              </p>
+            </div>
+
+            <div className="grid gap-2">
+              <div className="flex items-baseline justify-between gap-3">
                 <Label>扫描探针（可多选）</Label>
-                <div className="max-h-44 divide-y overflow-y-auto rounded-lg border">
-                  <label className="flex cursor-pointer items-start gap-3 p-2.5">
-                    <Checkbox
-                      className="mt-0.5"
-                      checked={form.probeIds.length === 0}
-                      onCheckedChange={() => setForm((s) => ({ ...s, probeIds: [] }))}
-                    />
-                    <div className="min-w-0">
-                      <p className="text-sm">本机扫描</p>
-                      <p className="text-xs text-muted-foreground">
-                        用面板所在机器的网络视角，不绑定探针
-                      </p>
-                    </div>
-                  </label>
-                  {probes.map((p) => (
-                    <label key={p.id} className="flex cursor-pointer items-start gap-3 p-2.5">
+                <span className="text-xs text-muted-foreground">
+                  {form.probeIds.length === 0
+                    ? "仅本机扫描"
+                    : `已选 ${form.probeIds.length} 个探针`}
+                </span>
+              </div>
+              <div className="max-h-72 divide-y overflow-y-auto rounded-lg border">
+                <label className="flex cursor-pointer items-start gap-3 px-3 py-2.5 transition-colors hover:bg-muted/50">
+                  <Checkbox
+                    className="mt-0.5"
+                    checked={form.probeIds.length === 0}
+                    onCheckedChange={() => setForm((s) => ({ ...s, probeIds: [] }))}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm leading-5">本机扫描</span>
+                    <span className="block text-xs leading-4 text-muted-foreground">
+                      用面板所在机器的网络视角，不绑定探针
+                    </span>
+                  </span>
+                </label>
+                {probes.map((p) => {
+                  const wrongLine = mismatched.some((m) => m.id === p.id)
+                  return (
+                    <label
+                      key={p.id}
+                      className="flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors hover:bg-muted/50"
+                    >
                       <Checkbox
-                        className="mt-0.5"
                         checked={form.probeIds.includes(p.id)}
                         onCheckedChange={(v) => toggleProbe(p.id, Boolean(v))}
                       />
-                      <div className="min-w-0">
-                        <p className="truncate text-sm">{p.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {p.line} · {p.online ? "在线" : "离线，扫描会直接报错"}
-                        </p>
-                      </div>
+                      <span className="min-w-0 flex-1 truncate text-sm">{p.name}</span>
+                      <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                        {wrongLine ? <TriangleAlert className="size-3.5 text-destructive" /> : null}
+                        <span className={wrongLine ? "text-destructive" : undefined}>{p.line}</span>
+                        <span className="flex items-center gap-1">
+                          <span
+                            className={
+                              p.online
+                                ? "size-1.5 rounded-full bg-emerald-500"
+                                : "size-1.5 rounded-full bg-muted-foreground/40"
+                            }
+                          />
+                          {p.online ? "在线" : "离线"}
+                        </span>
+                      </span>
                     </label>
-                  ))}
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  选多个时按「最差值」聚合：一个 IP 只要在任一探针上表现差就会被淘汰，宁可选一个各处都稳的
-                </p>
-                {mismatched.length > 0 ? (
-                  <p className="text-xs text-destructive">
-                    {mismatched.map((p) => `「${p.name}」在${p.line}`).join("、")}
-                    ，与所选「{currentLineLabel}」线路不一致，测出来的不是这条线路的视角
+                  )
+                })}
+                {probes.length === 0 ? (
+                  <p className="px-3 py-2.5 text-xs text-muted-foreground">
+                    还没有探针节点，可先到「探针节点」页添加，本机扫描也能正常出结果
                   </p>
                 ) : null}
               </div>
+              <p className="text-xs text-muted-foreground">
+                选多个时按「最差值」聚合：一个 IP 只要在任一探针上表现差就会被淘汰，宁可选一个各处都稳的
+              </p>
+              {mismatched.length > 0 ? (
+                <p className="text-xs text-destructive">
+                  {mismatched.map((p) => `「${p.name}」在${p.line}`).join("、")}
+                  ，与所选「{currentLineLabel}」线路不一致，测出来的不是这条线路的视角
+                </p>
+              ) : null}
             </div>
 
             <div className="grid gap-2">
