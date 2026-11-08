@@ -55,6 +55,7 @@ import {
   type Account,
   type Domain,
   type DomainRow,
+  type Probe,
   type ProviderDescriptor,
 } from "@/lib/api"
 
@@ -62,6 +63,8 @@ type FormState = {
   accountId: string
   rootDomain: string
   subDomain: string
+  recordLine: string
+  probeId: string
   ttl: string
   slots: string
   intervalMin: string
@@ -73,11 +76,21 @@ const emptyForm: FormState = {
   accountId: "",
   rootDomain: "",
   subDomain: "@",
+  recordLine: "默认",
+  probeId: "0",
   ttl: "600",
   slots: "2",
   intervalMin: "60",
   autoPush: true,
   enabled: true,
+}
+
+function lineLabel(value: string, lines?: { value: string; label: string }[]) {
+  if (!value) return "默认"
+  if (!lines || lines.length === 0) {
+    return value === "default" ? "默认" : value
+  }
+  return lines.find((l) => l.value === value)?.label ?? value
 }
 
 function statusBadge(status: string) {
@@ -98,6 +111,7 @@ export default function DomainsPage() {
   const [rows, setRows] = useState<DomainRow[]>([])
   const [accounts, setAccounts] = useState<Account[]>([])
   const [providers, setProviders] = useState<ProviderDescriptor[]>([])
+  const [probes, setProbes] = useState<Probe[]>([])
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<Domain | null>(null)
@@ -107,14 +121,16 @@ export default function DomainsPage() {
 
   const load = useCallback(async () => {
     try {
-      const [dm, ac, pv] = await Promise.all([
+      const [dm, ac, pv, pb] = await Promise.all([
         api.domains(),
         api.accounts(),
         api.providers(),
+        api.probes(),
       ])
       setRows(dm.domains ?? [])
       setAccounts(ac.accounts ?? [])
       setProviders(pv.providers ?? [])
+      setProbes(pb.probes ?? [])
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载失败")
     } finally {
@@ -137,6 +153,13 @@ export default function DomainsPage() {
   const selectedAccount = accounts.find((a) => String(a.id) === form.accountId)
   const selectedProvider = providers.find((p) => p.name === selectedAccount?.provider)
   const maxSlots = selectedProvider?.maxSlots ?? 2
+  // 线路必须是该服务商真实支持的值；不支持分线路的服务商直接禁用选择
+  const lineOptions = selectedProvider?.lines ?? []
+  const defaultLine =
+    lineOptions.find((l) => l.label === "默认")?.value ?? lineOptions[0]?.value ?? "默认"
+  const lineValue = lineOptions.some((l) => l.value === form.recordLine)
+    ? form.recordLine
+    : defaultLine
   // keep the slot selector inside what the chosen vendor can actually hold
   const slotValue = String(Math.min(Math.max(Number(form.slots) || 1, 1), maxSlots))
 
@@ -152,6 +175,8 @@ export default function DomainsPage() {
       accountId: String(d.accountId),
       rootDomain: d.rootDomain,
       subDomain: d.subDomain,
+      recordLine: d.recordLine || "默认",
+      probeId: String(d.probeId ?? 0),
       ttl: String(d.ttl),
       slots: String(d.slots),
       intervalMin: String(d.intervalMin),
@@ -176,7 +201,8 @@ export default function DomainsPage() {
       intervalMin: Number(form.intervalMin),
       autoPush: form.autoPush,
       enabled: form.enabled,
-      recordLine: "默认",
+      recordLine: lineValue,
+      probeId: Number(form.probeId || 0),
     }
     try {
       if (editing) {
@@ -288,6 +314,16 @@ export default function DomainsPage() {
                         >
                           {provider.label}
                         </Badge>
+                        {lineLabel(domain.recordLine, provider.lines) !== "默认" ? (
+                          <Badge variant="secondary" className="text-[10px] font-normal">
+                            {lineLabel(domain.recordLine, provider.lines)}
+                          </Badge>
+                        ) : null}
+                        {domain.probeId > 0 ? (
+                          <Badge variant="outline" className="text-[10px] font-normal">
+                            探针 · {probes.find((p) => p.id === domain.probeId)?.name ?? "已删除"}
+                          </Badge>
+                        ) : null}
                       </div>
                       <div className="text-xs text-muted-foreground">
                         {domain.rootDomain} · {domain.recordLine}
@@ -391,6 +427,69 @@ export default function DomainsPage() {
                   onFocus={(e) => e.currentTarget.select()}
                   onChange={(e) => setForm((s) => ({ ...s, subDomain: e.target.value }))}
                 />
+              </div>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2">
+                <Label>解析线路</Label>
+                {lineOptions.length === 0 ? (
+                  <Input value="默认（该服务商不支持分线路）" disabled />
+                ) : (
+                  <Select
+                    value={lineValue}
+                    items={Object.fromEntries(lineOptions.map((l) => [l.value, l.label]))}
+                    onValueChange={(v) => setForm((s) => ({ ...s, recordLine: String(v ?? "") }))}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {lineOptions.map((l) => (
+                        <SelectItem key={l.value} value={l.value}>
+                          {l.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {lineOptions.length === 0
+                    ? `${selectedProvider?.label ?? "该服务商"} 不支持按运营商分线路，同一主机名只能有一条记录组`
+                    : "只接管这条线路上的 A 记录，同一主机名可以按线路配多份"}
+                </p>
+              </div>
+              <div className="grid gap-2">
+                <Label>扫描探针</Label>
+                <Select
+                  value={form.probeId}
+                  items={{
+                    "0": "本机扫描",
+                    ...Object.fromEntries(
+                      probes.map((p) => [
+                        String(p.id),
+                        `${p.name} · ${p.line}${p.online ? "" : "（离线）"}`,
+                      ]),
+                    ),
+                  }}
+                  onValueChange={(v) => setForm((s) => ({ ...s, probeId: String(v ?? "0") }))}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0">本机扫描（面板所在机器）</SelectItem>
+                    {probes.map((p) => (
+                      <SelectItem key={p.id} value={String(p.id)}>
+                        {p.name} · {p.line}
+                        {p.online ? "" : "（离线）"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  选探针才会得到该线路视角的结果；探针离线时直接报错，不会退回本机
+                </p>
               </div>
             </div>
 

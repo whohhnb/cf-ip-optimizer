@@ -16,6 +16,11 @@ export type ProviderField = {
   required: boolean
 }
 
+export type LineOption = {
+  value: string
+  label: string
+}
+
 export type ProviderDescriptor = {
   name: string
   label: string
@@ -27,6 +32,8 @@ export type ProviderDescriptor = {
   setBased: boolean
   /** vendor cannot enumerate remote records (webhook etc) */
   noList: boolean
+  /** carrier-level lines this vendor can resolve separately; empty = none */
+  lines?: LineOption[]
 }
 
 /** Compact provider info attached to a domain. */
@@ -37,6 +44,7 @@ export type ProviderInfo = {
   setBased: boolean
   noList: boolean
   note?: string
+  lines?: LineOption[]
 }
 
 export type Account = {
@@ -55,6 +63,7 @@ export type Domain = {
   rootDomain: string
   subDomain: string
   recordLine: string
+  probeId: number
   ttl: number
   slots: number
   autoPush: boolean
@@ -64,6 +73,19 @@ export type Domain = {
   statusMsg: string
   lastScanAt: string | null
   lastPushAt: string | null
+  createdAt: string
+}
+
+export type Probe = {
+  id: number
+  userId: number
+  name: string
+  line: string
+  tokenHint: string
+  version: string
+  lastIp: string
+  lastSeenAt: string | null
+  online: boolean
   createdAt: string
 }
 
@@ -248,6 +270,17 @@ export const api = {
 
   deleteAccount: (id: number) =>
     http<{ ok: boolean }>(`/api/accounts/${id}`, { method: "DELETE" }),
+
+  probes: () => http<{ probes: Probe[] }>("/api/probes"),
+
+  createProbe: (body: { name: string; line: string }) =>
+    http<{ probe: Probe; token: string }>("/api/probes", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  deleteProbe: (id: number) =>
+    http<{ ok: boolean }>(`/api/probes/${id}`, { method: "DELETE" }),
 
   domains: () => http<{ domains: DomainRow[] }>("/api/domains"),
 

@@ -19,7 +19,8 @@ import { ApiError } from "@/lib/http"
 import { ColorThemeProvider } from "@/lib/theme";
 import LoginPage from "@/pages/login";
 import DashboardPage from "@/pages/dashboard";
-import DomainsPage from "@/pages/domains";
+import DomainsPage from "@/pages/domains"
+import ProbesPage from "@/pages/probes";
 import DomainDetailPage from "@/pages/domain-detail";
 import AccountsPage from "@/pages/accounts";
 import SettingsPage from "@/pages/settings";
@@ -110,6 +111,14 @@ export default function App() {
               element={
                 <Protected>
                   <DomainDetailPage />
+                </Protected>
+              }
+            />
+            <Route
+              path="/probes"
+              element={
+                <Protected>
+                  <ProbesPage />
                 </Protected>
               }
             />
