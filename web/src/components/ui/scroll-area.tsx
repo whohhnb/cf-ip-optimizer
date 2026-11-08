@@ -16,7 +16,7 @@ function ScrollArea({
         data-slot="scroll-area-viewport"
         className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
       >
-        {children}
+        <ScrollAreaPrimitive.Content>{children}</ScrollAreaPrimitive.Content>
       </ScrollAreaPrimitive.Viewport>
       <ScrollBar />
       <ScrollAreaPrimitive.Corner />
@@ -40,9 +40,10 @@ function ScrollBar({
       )}
       {...props}
     >
+      {/* 主题里的 --border 太浅，bg-border 几乎看不见；换成前景色半透明 */}
       <ScrollAreaPrimitive.Thumb
         data-slot="scroll-area-thumb"
-        className="relative flex-1 rounded-full bg-border"
+        className="relative flex-1 rounded-full bg-foreground/25 hover:bg-foreground/40"
       />
     </ScrollAreaPrimitive.Scrollbar>
   )
