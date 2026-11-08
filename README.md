@@ -286,6 +286,39 @@ cd backend && CGO_ENABLED=0 go build -trimpath \
 
 **探针**：部署在电信 / 联通 / 移动的机器上，只需要能**主动访问**面板的 HTTPS 端口（出站即可，不用开入站），每 5 秒拉一次任务、每 30 秒发一次心跳
 
+## 忘记密码
+
+密码是 bcrypt 单向哈希，看不到原文，只能重置。照 OpenList 的做法给了一条命令行兜底——不需要能登录面板，只要能在服务器上执行二进制：
+
+```bash
+# 忘了用哪个邮箱注册的
+./edgepilot admin
+
+# 随机生成一个新密码（推荐，不会留在 shell 历史里）
+./edgepilot admin random
+
+# 或者手动指定
+./edgepilot admin set 'MyNewPass123'
+```
+
+数据目录不是默认位置时加 `--data`（等价于 `PILOT_DATA_DIR`）：
+
+```bash
+./edgepilot --data /opt/edgepilot/data admin random
+```
+
+Docker 部署：
+
+```bash
+docker compose exec edgepilot /app/edgepilot admin random
+```
+
+服务在跑的时候也能执行——SQLite 是 WAL 模式，支持多进程同时访问。重置会同时把该账号的 `token_version` 加一，**已经登录的浏览器立刻失效**，不会出现「密码改了但旧会话还在用」。
+
+存在多个管理员时需要用 `--email` 指定是哪一个。
+
+> 这条只针对管理员账号。普通用户忘了密码目前只能由管理员用同样的方式重置，面板里还没有对应入口。
+
 ## 前置条件
 
 工具只负责「测速 + 写 A 记录」，两头得自己准备好
