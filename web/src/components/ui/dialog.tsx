@@ -5,6 +5,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 import { cn } from "cn"
 
 import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { XIcon } from "lucide-react"
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
@@ -54,16 +55,20 @@ function DialogContent({
         data-slot="dialog-content"
         className={cn(
           // 居中的弹窗没有高度上限，长表单会同时顶出上下两边，底部的按钮
-          // 点不到。这里统一限制在视口内并允许滚动，所有弹窗一起受益
+          // 点不到。这里统一限制在视口内并允许滚动，所有弹窗一起受益。
           //
-          // scrollbar-gutter 两侧都留：滚动条一出现就吃掉右边 10px，右边距
-          // 会比左边窄一截，两列表单肉眼可见地歪。两侧常驻就对称了
-          "fixed top-1/2 left-1/2 z-50 grid max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 overflow-y-auto overscroll-contain rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none [scrollbar-gutter:stable_both-edges] sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // 滚动交给 ScrollArea 而不是原生滚动条：弹窗是圆角的，原生滚动条
+          // 贴着边框画，滚到顶/底时 thumb 会从圆角里探出来（穿模）。ScrollArea
+          // 那条是浮在内容上、没有轨道的窄条，配合下面的 py-2 内缩，上下都
+          // 落在圆角以内。
+          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-xl bg-popover px-0 py-2 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}
       >
-        {children}
+        <ScrollArea className="max-h-[calc(100dvh-3rem)]">
+          <div className="grid gap-4 px-4 py-2">{children}</div>
+        </ScrollArea>
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
@@ -107,7 +112,11 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
+        // 吸在滚动区底部：长表单不用滚到最后才能点保存，滚动时也不会被
+        // 内容透上来（bg-popover 不透明）。
+        // -mx-4 -mb-2 正好抵消内容区的 px-4 py-2：分隔线通栏、底边齐平，
+        // 多出来的负边距会让内容多出 8px 假滚动。
+        "sticky bottom-0 z-10 -mx-4 -mb-2 flex flex-col-reverse gap-2 border-t bg-popover px-4 pt-3 pb-2 sm:flex-row sm:justify-end",
         className
       )}
       {...props}
