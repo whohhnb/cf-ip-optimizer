@@ -381,6 +381,30 @@ func (s *Store) ResultsByJob(jobID int64, limit int) ([]model.ScanResult, error)
 
 // ---------- managed records ----------
 
+// ListManagedForUser loads every managed record of one user in a single query.
+// The domain list shows the current IPs per line, and doing it per row would be
+// an N+1 over SQLite's single writer connection.
+func (s *Store) ListManagedForUser(userID int64) (map[int64][]model.ManagedRecord, error) {
+	rows, err := s.db.Query(`SELECT m.id,m.domain_id,m.record_id,m.slot,m.value,m.updated_at
+		FROM managed_records m JOIN domains d ON d.id = m.domain_id
+		WHERE d.user_id=? ORDER BY m.domain_id, m.slot`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64][]model.ManagedRecord{}
+	for rows.Next() {
+		var m model.ManagedRecord
+		var upd int64
+		if err := rows.Scan(&m.ID, &m.DomainID, &m.RecordID, &m.Slot, &m.Value, &upd); err != nil {
+			return nil, err
+		}
+		m.UpdatedAt = time.Unix(upd, 0)
+		out[m.DomainID] = append(out[m.DomainID], m)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) ListManaged(domainID int64) ([]model.ManagedRecord, error) {
 	rows, err := s.db.Query(`SELECT id,domain_id,record_id,slot,value,updated_at FROM managed_records WHERE domain_id=? ORDER BY slot`, domainID)
 	if err != nil {

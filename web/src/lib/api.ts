@@ -100,6 +100,8 @@ export type DomainRow = {
   full: string
   running: boolean
   provider: ProviderInfo
+  /** 该线路当前生效的 A 记录，列表页直接显示 IP */
+  managed: ManagedRecord[]
 }
 
 export type ScanJob = {

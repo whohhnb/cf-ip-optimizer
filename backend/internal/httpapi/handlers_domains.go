@@ -422,13 +422,20 @@ func (s *Server) handleListDomains(w http.ResponseWriter, r *http.Request) {
 		providerByAccount[a.ID] = a.Provider
 	}
 
+	managed, _ := s.st.ListManagedForUser(u.ID)
+
 	out := make([]map[string]any, 0, len(list))
 	for _, d := range list {
+		ips := managed[d.ID]
+		if ips == nil {
+			ips = []model.ManagedRecord{}
+		}
 		out = append(out, map[string]any{
 			"domain":   d,
 			"full":     d.FullName(),
 			"running":  s.svc.IsRunning(d.ID),
 			"provider": providerInfo(providerByAccount[d.AccountID]),
+			"managed":  ips,
 		})
 	}
 	ok(w, map[string]any{"domains": out})

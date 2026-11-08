@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Link, useNavigate } from "react-router-dom"
 import { Globe2, ListPlus, Loader2, Pencil, Plus, Trash2, Zap } from "lucide-react"
 import { toast } from "sonner"
@@ -60,6 +60,7 @@ import {
   type Domain,
   type DomainRow,
   type Probe,
+  type ProviderInfo,
   type ProviderDescriptor,
 } from "@/lib/api"
 
@@ -218,6 +219,40 @@ export default function DomainsPage() {
     setOpen(true)
   }
 
+  // 同一主机名的多条线路配置在库里是独立记录（一条线路一份），
+  // 界面上按主机名收成一张卡，看起来才是「一个域名、四条线路」
+  const groups = useMemo(() => {
+    const order = ["默认", "电信", "联通", "移动", "教育网", "境外"]
+    const rank = (v: string) => {
+      const i = order.indexOf(v)
+      return i < 0 ? 99 : i
+    }
+    const map = new Map<
+      string,
+      { full: string; root: string; provider: ProviderInfo; lines: DomainRow[] }
+    >()
+    for (const r of rows) {
+      const g = map.get(r.full) ?? {
+        full: r.full,
+        root: r.domain.rootDomain,
+        provider: r.provider,
+        lines: [],
+      }
+      g.lines.push(r)
+      map.set(r.full, g)
+    }
+    const out = [...map.values()]
+    for (const g of out) {
+      g.lines.sort(
+        (a, b) =>
+          rank(lineLabel(a.domain.recordLine, a.provider.lines)) -
+          rank(lineLabel(b.domain.recordLine, b.provider.lines)),
+      )
+    }
+    out.sort((a, b) => a.full.localeCompare(b.full))
+    return out
+  }, [rows])
+
   async function save() {
     if (!form.accountId) {
       toast.error("请先选择 DNS 账号")
@@ -287,7 +322,7 @@ export default function DomainsPage() {
         <div>
           <h1 className="text-xl font-semibold">域名调度</h1>
           <p className="text-sm text-muted-foreground">
-            为每个域名维护最多 2 条 A 记录，自动指向评分最高的优选 IP
+            一个主机名可挂多条线路，电信 / 联通 / 移动各走自己的优选 IP，默认线路兜底
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -316,118 +351,118 @@ export default function DomainsPage() {
         </Alert>
       ) : null}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">已接入域名</CardTitle>
-          <CardDescription>共 {rows.length} 个</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <Skeleton className="h-48 w-full" />
-          ) : rows.length === 0 ? (
-            <div className="flex h-40 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
-              <Globe2 className="size-6" />
-              还没有添加域名
-            </div>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>域名</TableHead>
-                  <TableHead>状态</TableHead>
-                  <TableHead className="hidden md:table-cell">策略</TableHead>
-                  <TableHead className="hidden lg:table-cell">最近扫描</TableHead>
-                  <TableHead className="hidden xl:table-cell">最近下发</TableHead>
-                  <TableHead className="text-right">操作</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map(({ domain, full, running, provider }) => (
-                  <TableRow key={domain.id} className="align-top">
-                    <TableCell>
-                      {/* 名字和根域名贴在一起，徽章单独一行：窄屏下徽章会折成两三行，
-                          夹在中间会把根域名挤到很远的地方，读起来是断的 */}
-                      <div className="flex flex-col gap-1">
-                        <Link
-                          to={`/domains/${domain.id}`}
-                          className="font-medium hover:underline max-sm:inline-block max-sm:py-1"
-                        >
-                          {full}
-                        </Link>
-                        <div className="text-xs text-muted-foreground">{domain.rootDomain}</div>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <Badge
-                            variant="outline"
-                            className="text-[10px] font-normal text-muted-foreground"
-                          >
-                            {provider.label}
-                          </Badge>
-                          {lineLabel(domain.recordLine, provider.lines) !== "默认" ? (
-                            <Badge variant="secondary" className="text-[10px] font-normal">
-                              {lineLabel(domain.recordLine, provider.lines)}
+      {loading ? (
+        <Skeleton className="h-48 w-full" />
+      ) : groups.length === 0 ? (
+        <Card>
+          <CardContent className="flex h-40 flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+            <Globe2 className="size-6" />
+            还没有添加域名
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {groups.map((g) => (
+            <Card key={g.full}>
+              <CardHeader className="pb-3">
+                <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+                  <Link to={`/domains/${g.lines[0].domain.id}`} className="hover:underline">
+                    {g.full}
+                  </Link>
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] font-normal text-muted-foreground"
+                  >
+                    {g.provider.label}
+                  </Badge>
+                  <Badge variant="secondary" className="text-[10px] font-normal">
+                    {g.lines.length} 条线路
+                  </Badge>
+                </CardTitle>
+                <CardDescription>
+                  {g.root} · TTL {g.lines[0].domain.ttl}s · 每 {g.lines[0].domain.intervalMin} 分钟
+                  · {g.lines[0].domain.autoPush ? "自动下发" : "手动下发"}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead className="w-24">线路</TableHead>
+                      <TableHead className="w-24">状态</TableHead>
+                      <TableHead>当前生效 IP</TableHead>
+                      <TableHead className="hidden md:table-cell">探针</TableHead>
+                      <TableHead className="w-24 text-right">操作</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {g.lines.map((r) => {
+                      const label = lineLabel(r.domain.recordLine, r.provider.lines)
+                      const names = probeNames(r.domain.probeIds, probes)
+                      return (
+                        <TableRow key={r.domain.id} className="align-top">
+                          <TableCell>
+                            <Badge
+                              variant={label === "默认" ? "outline" : "secondary"}
+                              className="text-[10px] font-normal"
+                            >
+                              {label}
                             </Badge>
-                          ) : null}
-                          {probeNames(domain.probeIds, probes).length > 0 ? (
-                            <Badge variant="outline" className="text-[10px] font-normal">
-                              探针 · {probeNames(domain.probeIds, probes).join("、")}
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <div className="text-xs text-muted-foreground md:hidden">
-                          {domain.slots} 条 A · 每 {domain.intervalMin} 分钟
-                        </div>
-                        {domain.status === "error" && domain.statusMsg ? (
-                          <div
-                            className="line-clamp-2 whitespace-normal break-words text-xs text-destructive"
-                            title={domain.statusMsg}
-                          >
-                            {domain.statusMsg}
-                          </div>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell>{statusBadge(domain.status)}</TableCell>
-                    <TableCell className="hidden text-xs text-muted-foreground md:table-cell">
-                      {domain.slots} 条 A · TTL {domain.ttl}s
-                      <br />
-                      每 {domain.intervalMin} 分钟 · {domain.autoPush ? "自动下发" : "手动下发"}
-                    </TableCell>
-                    <TableCell className="hidden text-xs text-muted-foreground lg:table-cell">
-                      {domain.lastScanAt
-                        ? new Date(domain.lastScanAt).toLocaleString("zh-CN")
-                        : "从未"}
-                      {running ? " · 进行中" : ""}
-                    </TableCell>
-                    <TableCell className="hidden text-xs text-muted-foreground xl:table-cell">
-                      {domain.lastPushAt
-                        ? new Date(domain.lastPushAt).toLocaleString("zh-CN")
-                        : "从未"}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-1">
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => openEdit(domain)}
-                        >
-                          <Pencil />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() => setRemoving(domain)}
-                        >
-                          <Trash2 />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                          </TableCell>
+                          <TableCell>{statusBadge(r.domain.status)}</TableCell>
+                          <TableCell className="whitespace-normal">
+                            {r.managed.length > 0 ? (
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {r.managed.map((m) => (
+                                  <code
+                                    key={m.id}
+                                    className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs"
+                                  >
+                                    {m.value}
+                                  </code>
+                                ))}
+                              </div>
+                            ) : r.domain.status === "error" && r.domain.statusMsg ? (
+                              <span className="text-xs text-destructive">{r.domain.statusMsg}</span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">尚未下发</span>
+                            )}
+                          </TableCell>
+                          <TableCell className="hidden whitespace-normal text-xs text-muted-foreground md:table-cell">
+                            {names.length > 0 ? names.join("、") : "本机扫描"}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <div className="flex justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label="编辑"
+                                title="编辑这条线路"
+                                onClick={() => openEdit(r.domain)}
+                              >
+                                <Pencil />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
+                                aria-label="删除"
+                                title="删除这条线路"
+                                onClick={() => setRemoving(r.domain)}
+                              >
+                                <Trash2 />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
