@@ -144,6 +144,8 @@ jobs:
           # 二进制自带前端与静态资源，压缩包里附带部署所需的最小文件集
           cp README.md LICENSE THIRD_PARTY_NOTICES.md pkg/
           cp deploy/Caddyfile deploy/edgepilot.service pkg/
+          # 环境变量模板：所有配置项都在里面，缺了它下载方只能翻源码
+          cp .env.example pkg/
           name="edgepilot-${TAG}-${GOOS}-${GOARCH}"
           if [ "$GOOS" = "windows" ]; then
             (cd pkg && zip -qr "../${name}.zip" .)

@@ -14,7 +14,6 @@ type Config struct {
 	DataDir    string
 	Secret     string // used for JWT signing + credential encryption
 	BaseURL    string
-	ProxyURL   string // optional outbound proxy for the scanner
 	LogLevel   string
 	TrustProxy bool
 }
@@ -45,7 +44,6 @@ func Load() Config {
 		DataDir:    dataDir,
 		Secret:     secret,
 		BaseURL:    strings.TrimRight(env("PILOT_BASE_URL", ""), "/"),
-		ProxyURL:   env("PILOT_PROXY", ""),
 		LogLevel:   env("PILOT_LOG_LEVEL", "info"),
 		TrustProxy: trust,
 	}
