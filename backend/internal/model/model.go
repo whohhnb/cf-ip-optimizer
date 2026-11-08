@@ -26,12 +26,15 @@ type DNSAccount struct {
 
 // Domain is one hostname whose A records are kept pointing at the fastest IPs.
 type Domain struct {
-	ID          int64      `json:"id"`
-	UserID      int64      `json:"userId"`
-	AccountID   int64      `json:"accountId"`
-	RootDomain  string     `json:"rootDomain"`
-	SubDomain   string     `json:"subDomain"`
-	RecordLine  string     `json:"recordLine"`
+	ID         int64  `json:"id"`
+	UserID     int64  `json:"userId"`
+	AccountID  int64  `json:"accountId"`
+	RootDomain string `json:"rootDomain"`
+	SubDomain  string `json:"subDomain"`
+	RecordLine string `json:"recordLine"` // 默认 / 电信 / 联通 / 移动 / 教育网 / 境外
+	// ProbeID routes this domain's scans to a remote agent sitting on the
+	// matching carrier's network. 0 means "scan locally".
+	ProbeID     int64      `json:"probeId"`
 	TTL         int        `json:"ttl"`
 	Slots       int        `json:"slots"` // how many A records to manage (1..2)
 	AutoPush    bool       `json:"autoPush"`
@@ -118,4 +121,35 @@ type Overview struct {
 	BestLatency float64 `json:"bestLatency"`
 	PushesToday int     `json:"pushesToday"`
 	LastScanAt  string  `json:"lastScanAt"`
+}
+
+// Probe is a remote scan agent. It lives on a machine inside one carrier's
+// network, which is the only way to know what a 电信 / 联通 / 移动 user will
+// actually experience — anycast gives each carrier a different path to the
+// same Cloudflare IP.
+type Probe struct {
+	ID         int64      `json:"id"`
+	UserID     int64      `json:"userId"`
+	Name       string     `json:"name"`
+	Line       string     `json:"line"`
+	TokenHint  string     `json:"tokenHint"` // first 6 chars, for recognition only
+	Version    string     `json:"version"`
+	LastIP     string     `json:"lastIp"`
+	LastSeenAt *time.Time `json:"lastSeenAt"`
+	Online     bool       `json:"online"`
+	CreatedAt  time.Time  `json:"createdAt"`
+}
+
+// ProbeTask is one scan request handed to a probe.
+type ProbeTask struct {
+	ID         int64      `json:"id"`
+	ProbeID    int64      `json:"probeId"`
+	DomainID   int64      `json:"domainId"`
+	JobID      int64      `json:"jobId"`
+	Status     string     `json:"status"` // pending | running | done | failed
+	Payload    string     `json:"payload,omitempty"`
+	Error      string     `json:"error"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	StartedAt  *time.Time `json:"startedAt"`
+	FinishedAt *time.Time `json:"finishedAt"`
 }

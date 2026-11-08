@@ -313,19 +313,7 @@ func Run(ctx context.Context, opts Options, emit func(Progress)) (Outcome, error
 		sr.Score = round2(score(r.latency, r.loss, sr.Speed, sr.HTTPRTT))
 		out.Results = append(out.Results, sr)
 	}
-	// 通过了 HTTP 校验的节点排在前面：没校验过的可能根本不能服务这个域名
-	// （403 / 证书不匹配 / 被墙），哪怕延迟数字更好看也不该抢走槽位
-	sort.Slice(out.Results, func(i, j int) bool {
-		vi := out.Results[i].HTTPRTT > 0
-		vj := out.Results[j].HTTPRTT > 0
-		if vi != vj {
-			return vi
-		}
-		if math.Abs(out.Results[i].Score-out.Results[j].Score) < 0.01 {
-			return out.Results[i].Latency < out.Results[j].Latency
-		}
-		return out.Results[i].Score > out.Results[j].Score
-	})
+	SortResults(out.Results)
 	emit(Progress{Stage: "完成", Tested: out.Tested, Total: total, OK: out.OK, Msg: "扫描完成"})
 	return out, nil
 }
@@ -399,6 +387,27 @@ func score(latencyMs, loss float64, speedMbps, httpRTT float64) float64 {
 		}
 	}
 	return total
+}
+
+// SortResults applies the canonical ranking: nodes that passed the HTTP check
+// first, then by score, then by latency. Both the local pipeline and probe
+// ingestion use it, so a remote scan ranks exactly like a local one.
+//
+// Unverified nodes lose ties on purpose: they may 403, present the wrong
+// certificate, or not serve the hostname at all, so a prettier latency number
+// must not let them take a DNS slot.
+func SortResults(results []model.ScanResult) {
+	sort.SliceStable(results, func(i, j int) bool {
+		vi := results[i].HTTPRTT > 0
+		vj := results[j].HTTPRTT > 0
+		if vi != vj {
+			return vi
+		}
+		if math.Abs(results[i].Score-results[j].Score) < 0.01 {
+			return results[i].Latency < results[j].Latency
+		}
+		return results[i].Score > results[j].Score
+	})
 }
 
 func clamp01(v float64) float64 {

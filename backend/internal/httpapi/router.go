@@ -80,6 +80,15 @@ func (s *Server) routes() {
 	m.HandleFunc("PUT /api/accounts/{id}", s.withAuth(s.handleUpdateAccount))
 	m.HandleFunc("DELETE /api/accounts/{id}", s.withAuth(s.handleDeleteAccount))
 
+	m.HandleFunc("GET /api/probes", s.withAuth(s.handleListProbes))
+	m.HandleFunc("POST /api/probes", s.withAuth(s.handleCreateProbe))
+	m.HandleFunc("DELETE /api/probes/{id}", s.withAuth(s.handleDeleteProbe))
+
+	// 探针端：不走用户 JWT，用每台探针独立的令牌
+	m.HandleFunc("POST /api/probe/heartbeat", s.handleProbeHeartbeat)
+	m.HandleFunc("GET /api/probe/tasks", s.handleProbeTasks)
+	m.HandleFunc("POST /api/probe/tasks/{id}/result", s.handleProbeResult)
+
 	m.HandleFunc("GET /api/domains", s.withAuth(s.handleListDomains))
 	m.HandleFunc("POST /api/domains", s.withAuth(s.handleCreateDomain))
 	m.HandleFunc("GET /api/domains/{id}", s.withAuth(s.handleGetDomain))

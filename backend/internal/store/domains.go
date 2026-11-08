@@ -8,7 +8,7 @@ import (
 	"edgepilot/internal/model"
 )
 
-const domainCols = `id,user_id,account_id,root_domain,sub_domain,record_line,ttl,slots,auto_push,interval_min,enabled,status,status_msg,last_scan_at,last_push_at,created_at`
+const domainCols = `id,user_id,account_id,root_domain,sub_domain,record_line,probe_id,ttl,slots,auto_push,interval_min,enabled,status,status_msg,last_scan_at,last_push_at,created_at`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -17,7 +17,7 @@ func scanDomain(sc scanner) (*model.Domain, error) {
 	var autoPush, enabled int
 	var lastScan, lastPush sql.NullInt64
 	var created int64
-	if err := sc.Scan(&d.ID, &d.UserID, &d.AccountID, &d.RootDomain, &d.SubDomain, &d.RecordLine,
+	if err := sc.Scan(&d.ID, &d.UserID, &d.AccountID, &d.RootDomain, &d.SubDomain, &d.RecordLine, &d.ProbeID,
 		&d.TTL, &d.Slots, &autoPush, &d.IntervalMin, &enabled, &d.Status, &d.StatusMsg,
 		&lastScan, &lastPush, &created); err != nil {
 		return nil, err
@@ -35,6 +35,7 @@ type DomainInput struct {
 	RootDomain  string
 	SubDomain   string
 	RecordLine  string
+	ProbeID     int64
 	TTL         int
 	Slots       int
 	AutoPush    bool
@@ -44,9 +45,9 @@ type DomainInput struct {
 
 func (s *Store) CreateDomain(userID int64, in DomainInput) (*model.Domain, error) {
 	nowT := now()
-	res, err := s.db.Exec(`INSERT INTO domains(user_id,account_id,root_domain,sub_domain,record_line,ttl,slots,auto_push,interval_min,enabled,status,created_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,'idle',?)`,
-		userID, in.AccountID, in.RootDomain, in.SubDomain, in.RecordLine, in.TTL, in.Slots,
+	res, err := s.db.Exec(`INSERT INTO domains(user_id,account_id,root_domain,sub_domain,record_line,probe_id,ttl,slots,auto_push,interval_min,enabled,status,created_at)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,'idle',?)`,
+		userID, in.AccountID, in.RootDomain, in.SubDomain, in.RecordLine, in.ProbeID, in.TTL, in.Slots,
 		boolInt(in.AutoPush), in.IntervalMin, boolInt(in.Enabled), nowT)
 	if err != nil {
 		return nil, err
@@ -105,9 +106,29 @@ func (s *Store) DomainByID(id, userID int64) (*model.Domain, error) {
 	return d, err
 }
 
+// DomainByIDInternal fetches a domain without an ownership filter. Only the
+// probe result path uses it: the agent authenticates as itself, and the domain
+// it scanned was already authorized when the task was queued.
+func (s *Store) DomainByIDInternal(id int64) (*model.Domain, error) {
+	row := s.db.QueryRow(`SELECT `+domainCols+` FROM domains WHERE id=?`, id)
+	d, err := scanDomain(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return d, err
+}
+
+// CountDomainsByProbe guards probe deletion: dropping a probe that domains
+// still point at would leave them unable to scan with no obvious cause.
+func (s *Store) CountDomainsByProbe(probeID int64) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM domains WHERE probe_id=?`, probeID).Scan(&n)
+	return n, err
+}
+
 func (s *Store) UpdateDomain(id, userID int64, in DomainInput) error {
-	_, err := s.db.Exec(`UPDATE domains SET account_id=?,root_domain=?,sub_domain=?,record_line=?,ttl=?,slots=?,auto_push=?,interval_min=?,enabled=? WHERE id=? AND user_id=?`,
-		in.AccountID, in.RootDomain, in.SubDomain, in.RecordLine, in.TTL, in.Slots,
+	_, err := s.db.Exec(`UPDATE domains SET account_id=?,root_domain=?,sub_domain=?,record_line=?,probe_id=?,ttl=?,slots=?,auto_push=?,interval_min=?,enabled=? WHERE id=? AND user_id=?`,
+		in.AccountID, in.RootDomain, in.SubDomain, in.RecordLine, in.ProbeID, in.TTL, in.Slots,
 		boolInt(in.AutoPush), in.IntervalMin, boolInt(in.Enabled), id, userID)
 	return err
 }

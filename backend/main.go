@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
 	"log"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"edgepilot/internal/agent"
 	"edgepilot/internal/config"
 	"edgepilot/internal/cryptox"
 	"edgepilot/internal/dnsprovider"
@@ -26,6 +28,22 @@ import (
 
 func main() {
 	log.SetFlags(log.LstdFlags)
+
+	// 同一个二进制两种身份：默认是主控，`edgepilot probe` 是远端探针
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "probe":
+			runProbe(os.Args[2:])
+			return
+		case "version", "-v", "--version":
+			log.Printf("EdgePilot %s", httpapi.Version)
+			return
+		case "help", "-h", "--help":
+			usage()
+			return
+		}
+	}
+
 	cfg := config.Load()
 
 	dbPath := filepath.Join(cfg.DataDir, "edgepilot.db")
@@ -59,6 +77,8 @@ func main() {
 
 	sched := scheduler.New(st, svc)
 	go sched.Run(ctx)
+	// 探针任务超时回收：探针崩了不能把域名槽位永久占住
+	go svc.ProbeJanitor(ctx)
 
 	httpServer := &http.Server{
 		Addr:              cfg.Addr,
@@ -95,4 +115,48 @@ func main() {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer shutdownCancel()
 	_ = httpServer.Shutdown(shutdownCtx)
+}
+
+func usage() {
+	log.Printf(`EdgePilot 边缘领航 %s
+
+用法:
+  edgepilot                      启动主控面板
+  edgepilot probe [参数]          以探针身份运行（部署在电信/联通/移动的机器上）
+  edgepilot version              打印版本
+
+探针参数:
+  --server   主控地址，如 https://panel.example.com
+  --token    探针令牌，在面板「探针」页创建时显示一次
+  --interval 拉取任务的间隔，默认 5s
+  --once     只跑一轮就退出，便于排查连通性
+
+示例:
+  edgepilot probe --server https://panel.example.com --token ep_xxx
+`, httpapi.Version)
+}
+
+func runProbe(args []string) {
+	fs := flag.NewFlagSet("probe", flag.ExitOnError)
+	server := fs.String("server", "http://127.0.0.1:8080", "主控地址")
+	token := fs.String("token", "", "探针令牌")
+	interval := fs.Duration("interval", 5*time.Second, "拉取任务间隔")
+	once := fs.Bool("once", false, "只跑一轮后退出")
+	fs.Usage = usage
+	_ = fs.Parse(args)
+
+	agent.SetVersion(httpapi.Version)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+
+	if err := agent.Run(ctx, agent.Config{
+		Server:   *server,
+		Token:    *token,
+		Interval: *interval,
+		Version:  httpapi.Version,
+		Once:     *once,
+	}); err != nil {
+		log.Fatalf("探针退出: %v", err)
+	}
 }

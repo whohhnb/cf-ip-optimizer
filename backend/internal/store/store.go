@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS domains (
   root_domain  TEXT NOT NULL,
   sub_domain   TEXT NOT NULL DEFAULT '@',
   record_line  TEXT NOT NULL DEFAULT '默认',
+  probe_id     INTEGER NOT NULL DEFAULT 0,
   ttl          INTEGER NOT NULL DEFAULT 600,
   slots        INTEGER NOT NULL DEFAULT 2,
   auto_push    INTEGER NOT NULL DEFAULT 1,
@@ -79,6 +80,35 @@ CREATE TABLE IF NOT EXISTS domains (
   last_push_at INTEGER,
   created_at   INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS probes (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name         TEXT NOT NULL,
+  line         TEXT NOT NULL DEFAULT '默认',
+  token_hash   TEXT NOT NULL UNIQUE,
+  token_hint   TEXT NOT NULL DEFAULT '',
+  version      TEXT NOT NULL DEFAULT '',
+  last_ip      TEXT NOT NULL DEFAULT '',
+  last_seen_at INTEGER NOT NULL DEFAULT 0,
+  created_at   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS probe_tasks (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  probe_id    INTEGER NOT NULL REFERENCES probes(id) ON DELETE CASCADE,
+  domain_id   INTEGER NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
+  job_id      INTEGER NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'pending',
+  payload     TEXT NOT NULL DEFAULT '{}',
+  error       TEXT NOT NULL DEFAULT '',
+  created_at  INTEGER NOT NULL,
+  started_at  INTEGER NOT NULL DEFAULT 0,
+  finished_at INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_probe_tasks_pick ON probe_tasks(probe_id, status, id);
+CREATE INDEX IF NOT EXISTS idx_probe_tasks_domain ON probe_tasks(domain_id, status);
 
 CREATE TABLE IF NOT EXISTS scan_jobs (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,6 +192,17 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("migrate users: %w", err)
 		}
 	}
+	// 老库补 probe_id 列（新增于多探针调度）
+	dcols, err := s.columns("domains")
+	if err != nil {
+		return err
+	}
+	if !dcols["probe_id"] {
+		if _, err := s.db.Exec(`ALTER TABLE domains ADD COLUMN probe_id INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("migrate domains: %w", err)
+		}
+	}
+
 	// 老库补 http_rtt 列（新增于 v1.1 的 HTTP 层往返统计）
 	rcols, err := s.columns("scan_results")
 	if err != nil {
