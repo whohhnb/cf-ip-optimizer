@@ -82,3 +82,67 @@ func TestEffectiveConcurrency(t *testing.T) {
 		}
 	}
 }
+
+// The whole point of multi-probe aggregation: an IP that is great for one
+// vantage point and terrible for another must lose to one that is merely good
+// for both. Averaging would pick the former.
+func TestMergeProbeResultsTakesWorstCase(t *testing.T) {
+	a := []model.ScanResult{
+		{IP: "1.1.1.1", Latency: 30, Loss: 0, Speed: 50, HTTPRTT: 100, Colo: "HKG"},
+		{IP: "2.2.2.2", Latency: 100, Loss: 0, Speed: 50, HTTPRTT: 350, Colo: "HKG"},
+	}
+	b := []model.ScanResult{
+		{IP: "1.1.1.1", Latency: 200, Loss: 0, Speed: 50, HTTPRTT: 700, Colo: "NRT"},
+		{IP: "2.2.2.2", Latency: 100, Loss: 0, Speed: 50, HTTPRTT: 350, Colo: "HKG"},
+	}
+	got := mergeProbeResults([][]model.ScanResult{a, b})
+	if len(got) != 2 {
+		t.Fatalf("expected 2 merged rows, got %d", len(got))
+	}
+	if got[0].IP != "2.2.2.2" {
+		t.Fatalf("stable IP should win, got %s first (scores: %v/%v)",
+			got[0].IP, got[0].Score, got[1].Score)
+	}
+
+	var volatile model.ScanResult
+	for _, r := range got {
+		if r.IP == "1.1.1.1" {
+			volatile = r
+		}
+	}
+	if volatile.Latency != 200 {
+		t.Fatalf("latency must be the worst value, got %v", volatile.Latency)
+	}
+	if volatile.HTTPRTT != 700 {
+		t.Fatalf("http rtt must be the worst value, got %v", volatile.HTTPRTT)
+	}
+	if volatile.Colo != "HKG/NRT" {
+		t.Fatalf("colo must union both vantage points, got %q", volatile.Colo)
+	}
+}
+
+func TestMergeProbeResultsSingleSetPassesThrough(t *testing.T) {
+	one := []model.ScanResult{
+		{IP: "9.9.9.9", Latency: 50, Loss: 0, Speed: 40, HTTPRTT: 180, Colo: "HKG"},
+		{IP: "8.8.8.8", Latency: 300, Loss: 0, Speed: 0, HTTPRTT: 0, Colo: ""},
+	}
+	got := mergeProbeResults([][]model.ScanResult{one})
+	if len(got) != 2 {
+		t.Fatalf("expected 2 rows, got %d", len(got))
+	}
+	if got[0].IP != "9.9.9.9" {
+		t.Fatalf("verified node should rank first, got %s", got[0].IP)
+	}
+	if got[1].Score >= got[0].Score {
+		t.Fatalf("unverified node must score lower: %v vs %v", got[1].Score, got[0].Score)
+	}
+}
+
+func TestMergeProbeResultsKeepsSpeedMinimum(t *testing.T) {
+	a := []model.ScanResult{{IP: "1.1.1.1", Latency: 50, Speed: 80, HTTPRTT: 200}}
+	b := []model.ScanResult{{IP: "1.1.1.1", Latency: 50, Speed: 12, HTTPRTT: 200}}
+	got := mergeProbeResults([][]model.ScanResult{a, b})
+	if got[0].Speed != 12 {
+		t.Fatalf("speed must be the worst measured value, got %v", got[0].Speed)
+	}
+}

@@ -41,6 +41,10 @@ type Options struct {
 	// drawing a fresh random set, because anycast means most new samples land
 	// on the same PoP anyway.
 	Seeds []string
+	// Fixed makes the run measure exactly these addresses and nothing else.
+	// The controller sets it when several probes scan for one job: merging
+	// results by IP is only meaningful if every probe saw the same list.
+	Fixed []string
 }
 
 func (o *Options) normalize() {
@@ -114,13 +118,19 @@ func Run(ctx context.Context, opts Options, emit func(Progress)) (Outcome, error
 	opts.normalize()
 	out := Outcome{}
 
-	emit(Progress{Stage: "采样", Msg: "拉取 Cloudflare 地址段"})
-	ranges := Ranges(ctx, opts.IPv6)
-	if len(ranges) == 0 {
-		return out, errNoRanges
+	var ips []string
+	if len(opts.Fixed) > 0 {
+		emit(Progress{Stage: "采样", Msg: "使用主控下发的固定候选列表"})
+		ips = sanitizeFixed(opts.Fixed, opts.Candidates)
+	} else {
+		emit(Progress{Stage: "采样", Msg: "拉取 Cloudflare 地址段"})
+		ranges := Ranges(ctx, opts.IPv6)
+		if len(ranges) == 0 {
+			return out, errNoRanges
+		}
+		rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+		ips = buildCandidates(ranges, opts, rnd)
 	}
-	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
-	ips := buildCandidates(ranges, opts, rnd)
 	if len(ips) == 0 {
 		return out, errNoRanges
 	}
@@ -318,6 +328,46 @@ func Run(ctx context.Context, opts Options, emit func(Progress)) (Outcome, error
 	return out, nil
 }
 
+// sanitizeFixed validates a controller-provided candidate list. It is untrusted
+// input in the sense that it crossed a network boundary, so bad entries are
+// dropped rather than handed to the dialer.
+func sanitizeFixed(in []string, limit int) []string {
+	out := make([]string, 0, len(in))
+	seen := make(map[string]struct{}, len(in))
+	for _, raw := range in {
+		ip := net.ParseIP(strings.TrimSpace(raw))
+		if ip == nil {
+			continue
+		}
+		s := ip.String()
+		if _, dup := seen[s]; dup {
+			continue
+		}
+		seen[s] = struct{}{}
+		out = append(out, s)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+// PickCandidates builds the address list once, so every probe in a job scans
+// the same IPs. Two independent random samples out of 1.5M addresses barely
+// overlap, which would make per-IP aggregation meaningless.
+func PickCandidates(ctx context.Context, n int, ipv6 bool) ([]string, error) {
+	ranges := Ranges(ctx, ipv6)
+	if len(ranges) == 0 {
+		return nil, errNoRanges
+	}
+	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
+	ips := Sample(ranges, n, rnd)
+	if len(ips) == 0 {
+		return nil, errNoRanges
+	}
+	return ips, nil
+}
+
 // buildCandidates merges last round's winners with a fresh sample. Re-testing
 // known-good addresses is worth more than extra random draws: under anycast
 // most new samples resolve to the same PoP, so the marginal value of another
@@ -363,6 +413,13 @@ func coloAllowed(colo string, allow []string) bool {
 // score blends latency, throughput, packet loss and the HTTP-layer round trip
 // into 0..100. Candidates that never reached the throughput phase are ranked on
 // the metrics we do have, scaled so they cannot leapfrog a measured node.
+// Score is the canonical 0..100 ranking used by both the local pipeline and
+// multi-probe aggregation. Exported so the controller can re-score merged
+// worst-case metrics with exactly the same formula.
+func Score(latencyMs, loss float64, speedMbps, httpRTT float64) float64 {
+	return score(latencyMs, loss, speedMbps, httpRTT)
+}
+
 func score(latencyMs, loss float64, speedMbps, httpRTT float64) float64 {
 	latScore := clamp01(1 - (latencyMs-10)/490)
 	lossScore := clamp01(1 - loss)

@@ -36,7 +36,7 @@ type DomainInput struct {
 	SubDomain   string
 	RecordLine  string
 	ColoAllow   string
-	ProbeID     int64
+	ProbeIDs    []int64
 	TTL         int
 	Slots       int
 	AutoPush    bool
@@ -46,14 +46,33 @@ type DomainInput struct {
 
 func (s *Store) CreateDomain(userID int64, in DomainInput) (*model.Domain, error) {
 	nowT := now()
-	res, err := s.db.Exec(`INSERT INTO domains(user_id,account_id,root_domain,sub_domain,record_line,colo_allow,probe_id,ttl,slots,auto_push,interval_min,enabled,status,created_at)
+	primary := int64(0)
+	if len(in.ProbeIDs) > 0 {
+		primary = in.ProbeIDs[0]
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(`INSERT INTO domains(user_id,account_id,root_domain,sub_domain,record_line,colo_allow,probe_id,ttl,slots,auto_push,interval_min,enabled,status,created_at)
 		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'idle',?)`,
-		userID, in.AccountID, in.RootDomain, in.SubDomain, in.RecordLine, in.ColoAllow, in.ProbeID, in.TTL, in.Slots,
+		userID, in.AccountID, in.RootDomain, in.SubDomain, in.RecordLine, in.ColoAllow, primary, in.TTL, in.Slots,
 		boolInt(in.AutoPush), in.IntervalMin, boolInt(in.Enabled), nowT)
 	if err != nil {
 		return nil, err
 	}
 	id, _ := res.LastInsertId()
+	for _, pid := range in.ProbeIDs {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO domain_probes(domain_id,probe_id) VALUES(?,?)`, id, pid); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
 	return s.DomainByID(id, userID)
 }
 
@@ -78,7 +97,13 @@ func (s *Store) ListDomains(userID int64) ([]model.Domain, error) {
 		}
 		out = append(out, *d)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.attachProbes(out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *Store) AllDomains() ([]model.Domain, error) {
@@ -95,7 +120,13 @@ func (s *Store) AllDomains() ([]model.Domain, error) {
 		}
 		out = append(out, *d)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := s.attachProbes(out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *Store) DomainByID(id, userID int64) (*model.Domain, error) {
@@ -104,7 +135,13 @@ func (s *Store) DomainByID(id, userID int64) (*model.Domain, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return d, err
+	if err != nil {
+		return nil, err
+	}
+	if ids, err := s.DomainProbeIDs(d.ID); err == nil {
+		d.ProbeIDs = ids
+	}
+	return d, nil
 }
 
 // DomainConflict reports whether this user already has a config for the same
@@ -127,7 +164,13 @@ func (s *Store) DomainByIDInternal(id int64) (*model.Domain, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
-	return d, err
+	if err != nil {
+		return nil, err
+	}
+	if ids, err := s.DomainProbeIDs(d.ID); err == nil {
+		d.ProbeIDs = ids
+	}
+	return d, nil
 }
 
 // CountDomainsByProbe guards probe deletion: dropping a probe that domains
@@ -139,10 +182,31 @@ func (s *Store) CountDomainsByProbe(probeID int64) (int, error) {
 }
 
 func (s *Store) UpdateDomain(id, userID int64, in DomainInput) error {
-	_, err := s.db.Exec(`UPDATE domains SET account_id=?,root_domain=?,sub_domain=?,record_line=?,colo_allow=?,probe_id=?,ttl=?,slots=?,auto_push=?,interval_min=?,enabled=? WHERE id=? AND user_id=?`,
-		in.AccountID, in.RootDomain, in.SubDomain, in.RecordLine, in.ColoAllow, in.ProbeID, in.TTL, in.Slots,
-		boolInt(in.AutoPush), in.IntervalMin, boolInt(in.Enabled), id, userID)
-	return err
+	primary := int64(0)
+	if len(in.ProbeIDs) > 0 {
+		primary = in.ProbeIDs[0]
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.Exec(`UPDATE domains SET account_id=?,root_domain=?,sub_domain=?,record_line=?,colo_allow=?,probe_id=?,ttl=?,slots=?,auto_push=?,interval_min=?,enabled=? WHERE id=? AND user_id=?`,
+		in.AccountID, in.RootDomain, in.SubDomain, in.RecordLine, in.ColoAllow, primary, in.TTL, in.Slots,
+		boolInt(in.AutoPush), in.IntervalMin, boolInt(in.Enabled), id, userID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM domain_probes WHERE domain_id=?`, id); err != nil {
+		return err
+	}
+	for _, pid := range in.ProbeIDs {
+		if _, err := tx.Exec(`INSERT OR IGNORE INTO domain_probes(domain_id,probe_id) VALUES(?,?)`, id, pid); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) DeleteDomain(id, userID int64) error {

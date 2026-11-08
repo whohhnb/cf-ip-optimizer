@@ -202,6 +202,33 @@ func (s *Store) ProbeTaskByID(id int64) (*model.ProbeTask, error) {
 	return &t, nil
 }
 
+// SaveProbeTaskResults keeps one agent's raw output for the later merge.
+func (s *Store) SaveProbeTaskResults(id int64, results string, tested int) error {
+	_, err := s.db.Exec(`UPDATE probe_tasks SET results=?, tested=?, status='done', finished_at=? WHERE id=?`,
+		results, tested, now(), id)
+	return err
+}
+
+// ProbeTasksByJob returns every task of one scan, with the stored results, so
+// the caller can decide whether the job is ready to merge.
+func (s *Store) ProbeTasksByJob(jobID int64) ([]model.ProbeTask, error) {
+	rows, err := s.db.Query(`SELECT id,probe_id,domain_id,job_id,status,results,tested,error
+		FROM probe_tasks WHERE job_id=? ORDER BY id`, jobID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []model.ProbeTask
+	for rows.Next() {
+		var t model.ProbeTask
+		if err := rows.Scan(&t.ID, &t.ProbeID, &t.DomainID, &t.JobID, &t.Status, &t.Results, &t.Tested, &t.Error); err != nil {
+			return nil, err
+		}
+		out = append(out, t)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) FinishProbeTask(id int64, status, errMsg string) error {
 	_, err := s.db.Exec(`UPDATE probe_tasks SET status=?, error=?, finished_at=? WHERE id=?`,
 		status, errMsg, now(), id)

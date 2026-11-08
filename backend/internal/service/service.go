@@ -205,8 +205,8 @@ func (s *Service) StartScan(ctx context.Context, d *model.Domain, trigger string
 
 	// 绑了探针就走远端：本地视角代表不了电信/联通/移动的访客，
 	// 悄悄退回本地扫描等于用错误的视角污染分线路排名
-	if d.ProbeID > 0 {
-		if err := s.dispatchToProbe(d, job, opts); err != nil {
+	if len(d.ProbeIDs) > 0 || d.ProbeID > 0 {
+		if err := s.dispatchToProbes(ctx, d, job, opts); err != nil {
 			_ = s.Store.FinishJob(job.ID, "failed", err.Error(), "", 0, 0, false)
 			_ = s.Store.SetDomainStatus(d.ID, "error", err.Error())
 			_ = s.Store.TouchDomainScan(d.ID)

@@ -37,8 +37,11 @@ type Domain struct {
 	// PoP differs by carrier: 移动 often wins on NRT while 电信 wins on HKG,
 	// so one shared list forces a worse intersection.
 	ColoAllow string `json:"coloAllow"`
-	// ProbeID routes this domain's scans to a remote agent sitting on the
-	// matching carrier's network. 0 means "scan locally".
+	// ProbeIDs are the agents that scan for this line. Empty means "scan
+	// locally". More than one means the results are merged worst-case, so the
+	// chosen IP is never terrible for any of them.
+	ProbeIDs []int64 `json:"probeIds"`
+	// ProbeID is the first entry of ProbeIDs, kept for older clients.
 	ProbeID     int64      `json:"probeId"`
 	TTL         int        `json:"ttl"`
 	Slots       int        `json:"slots"` // how many A records to manage (1..2)
@@ -151,12 +154,16 @@ type Probe struct {
 
 // ProbeTask is one scan request handed to a probe.
 type ProbeTask struct {
-	ID         int64      `json:"id"`
-	ProbeID    int64      `json:"probeId"`
-	DomainID   int64      `json:"domainId"`
-	JobID      int64      `json:"jobId"`
-	Status     string     `json:"status"` // pending | running | done | failed
-	Payload    string     `json:"payload,omitempty"`
+	ID       int64  `json:"id"`
+	ProbeID  int64  `json:"probeId"`
+	DomainID int64  `json:"domainId"`
+	JobID    int64  `json:"jobId"`
+	Status   string `json:"status"` // pending | running | done | failed
+	Payload  string `json:"payload,omitempty"`
+	// Results holds this agent's raw output until every agent in the job has
+	// reported, at which point the controller merges them.
+	Results    string     `json:"-"`
+	Tested     int        `json:"tested"`
 	Error      string     `json:"error"`
 	CreatedAt  time.Time  `json:"createdAt"`
 	StartedAt  *time.Time `json:"startedAt"`

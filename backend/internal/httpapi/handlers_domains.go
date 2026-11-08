@@ -223,17 +223,19 @@ func (s *Server) handleDeleteAccount(w http.ResponseWriter, r *http.Request) {
 // ---------- domains ----------
 
 type domainInput struct {
-	AccountID   int64  `json:"accountId"`
-	RootDomain  string `json:"rootDomain"`
-	SubDomain   string `json:"subDomain"`
-	RecordLine  string `json:"recordLine"`
-	ColoAllow   string `json:"coloAllow"`
-	ProbeID     int64  `json:"probeId"`
-	TTL         int    `json:"ttl"`
-	Slots       int    `json:"slots"`
-	AutoPush    bool   `json:"autoPush"`
-	IntervalMin int    `json:"intervalMin"`
-	Enabled     bool   `json:"enabled"`
+	AccountID  int64   `json:"accountId"`
+	RootDomain string  `json:"rootDomain"`
+	SubDomain  string  `json:"subDomain"`
+	RecordLine string  `json:"recordLine"`
+	ColoAllow  string  `json:"coloAllow"`
+	ProbeIDs   []int64 `json:"probeIds"`
+	// ProbeID 是旧版单探针字段，仍然接受，合并进 ProbeIDs
+	ProbeID     int64 `json:"probeId"`
+	TTL         int   `json:"ttl"`
+	Slots       int   `json:"slots"`
+	AutoPush    bool  `json:"autoPush"`
+	IntervalMin int   `json:"intervalMin"`
+	Enabled     bool  `json:"enabled"`
 }
 
 var labelRe = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
@@ -365,13 +367,35 @@ func defaultLineFor(desc dnsprovider.Descriptor) string {
 	return "默认"
 }
 
-func (s *Server) checkProbe(u *model.User, probeID int64) string {
-	if probeID <= 0 {
-		return ""
+// maxProbesPerLine caps how many agents may scan for one line. Each one adds a
+// full scan worth of traffic, and beyond a handful the worst-case merge stops
+// improving.
+const maxProbesPerLine = 8
+
+// normalizeProbeIDs merges the legacy single field, drops duplicates and
+// validates ownership, so a crafted id cannot borrow another tenant's agent.
+func (s *Server) normalizeProbeIDs(u *model.User, in *domainInput) string {
+	ids := in.ProbeIDs
+	if len(ids) == 0 && in.ProbeID > 0 {
+		ids = []int64{in.ProbeID}
 	}
-	if _, err := s.st.ProbeByID(probeID, u.ID); err != nil {
-		return "所选探针不存在"
+	seen := make(map[int64]bool, len(ids))
+	out := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 || seen[id] {
+			continue
+		}
+		seen[id] = true
+		if _, err := s.st.ProbeByID(id, u.ID); err != nil {
+			return "所选探针不存在"
+		}
+		out = append(out, id)
 	}
+	if len(out) > maxProbesPerLine {
+		return fmt.Sprintf("一条线路最多绑定 %d 个探针", maxProbesPerLine)
+	}
+	in.ProbeIDs = out
+	in.ProbeID = 0
 	return ""
 }
 
@@ -424,7 +448,7 @@ func (s *Server) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, msg)
 		return
 	}
-	if msg := s.checkProbe(u, in.ProbeID); msg != "" {
+	if msg := s.normalizeProbeIDs(u, &in); msg != "" {
 		fail(w, http.StatusBadRequest, msg)
 		return
 	}
@@ -517,7 +541,7 @@ func (s *Server) handleUpdateDomain(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, msg)
 		return
 	}
-	if msg := s.checkProbe(u, in.ProbeID); msg != "" {
+	if msg := s.normalizeProbeIDs(u, &in); msg != "" {
 		fail(w, http.StatusBadRequest, msg)
 		return
 	}

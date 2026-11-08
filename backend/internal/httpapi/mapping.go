@@ -9,7 +9,7 @@ func storeDomainInput(in domainInput) store.DomainInput {
 		SubDomain:   in.SubDomain,
 		RecordLine:  in.RecordLine,
 		ColoAllow:   in.ColoAllow,
-		ProbeID:     in.ProbeID,
+		ProbeIDs:    in.ProbeIDs,
 		TTL:         in.TTL,
 		Slots:       in.Slots,
 		AutoPush:    in.AutoPush,

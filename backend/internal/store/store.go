@@ -104,12 +104,21 @@ CREATE TABLE IF NOT EXISTS probe_tasks (
   job_id      INTEGER NOT NULL,
   status      TEXT NOT NULL DEFAULT 'pending',
   payload     TEXT NOT NULL DEFAULT '{}',
+  results     TEXT NOT NULL DEFAULT '',
+  tested      INTEGER NOT NULL DEFAULT 0,
   error       TEXT NOT NULL DEFAULT '',
   created_at  INTEGER NOT NULL,
   started_at  INTEGER NOT NULL DEFAULT 0,
   finished_at INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS domain_probes (
+  domain_id INTEGER NOT NULL REFERENCES domains(id) ON DELETE CASCADE,
+  probe_id  INTEGER NOT NULL REFERENCES probes(id) ON DELETE CASCADE,
+  PRIMARY KEY (domain_id, probe_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_domain_probes_probe ON domain_probes(probe_id);
 CREATE INDEX IF NOT EXISTS idx_probe_tasks_pick ON probe_tasks(probe_id, status, id);
 CREATE INDEX IF NOT EXISTS idx_probe_tasks_domain ON probe_tasks(domain_id, status);
 
@@ -209,6 +218,30 @@ func (s *Store) migrate() error {
 		if _, err := s.db.Exec(`ALTER TABLE domains ADD COLUMN colo_allow TEXT NOT NULL DEFAULT ''`); err != nil {
 			return fmt.Errorf("migrate domains colo: %w", err)
 		}
+	}
+
+	// probe_tasks.results：多探针聚合需要保留每个探针的原始结果，
+	// 等全部回传后再合并
+	tcols, err := s.columns("probe_tasks")
+	if err != nil {
+		return err
+	}
+	if !tcols["results"] {
+		if _, err := s.db.Exec(`ALTER TABLE probe_tasks ADD COLUMN results TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("migrate probe_tasks: %w", err)
+		}
+	}
+	if !tcols["tested"] {
+		if _, err := s.db.Exec(`ALTER TABLE probe_tasks ADD COLUMN tested INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("migrate probe_tasks tested: %w", err)
+		}
+	}
+
+	// 旧的单探针绑定迁到多对多表；domains.probe_id 保留为「首个探针」的
+	// 冗余字段，只用于兼容旧接口，读写都以 domain_probes 为准
+	if _, err := s.db.Exec(`INSERT OR IGNORE INTO domain_probes(domain_id, probe_id)
+		SELECT id, probe_id FROM domains WHERE probe_id > 0`); err != nil {
+		return fmt.Errorf("migrate domain_probes: %w", err)
 	}
 
 	pcols, err := s.columns("probes")
