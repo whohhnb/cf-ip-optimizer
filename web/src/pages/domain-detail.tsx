@@ -307,7 +307,7 @@ export default function DomainDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground">
-            {best ? best.ip : "暂无数据"}
+            {best ? `来自 ${best.ip}` : "暂无数据"}
           </CardContent>
         </Card>
         <Card>
@@ -328,19 +328,25 @@ export default function DomainDetailPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground">
-            {best?.colo ? `机房 ${best.colo}` : "下载测速未完成"}
+            {best && best.speed > 0
+              ? best.colo
+                ? `机房 ${best.colo}`
+                : "机房未知"
+              : results.some((r) => r.speed > 0)
+                ? "该节点未进入测速"
+                : "下载测速未完成"}
           </CardContent>
         </Card>
         <Card>
           <CardHeader className="pb-1">
             <CardDescription className="flex items-center gap-1.5">
               <Download className="size-3.5" />
-              参与节点
+              候选 IP
             </CardDescription>
-            <CardTitle className="text-2xl tabular-nums">{detail.job?.tested ?? 0}</CardTitle>
+            <CardTitle className="text-2xl tabular-nums">{detail.job?.candidates ?? 0}</CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-muted-foreground">
-            可用 {detail.job?.ok ?? 0} / 候选 {detail.job?.candidates ?? 0}
+            实测 {detail.job?.tested ?? 0} 个 · 可用 {detail.job?.ok ?? 0} 个
           </CardContent>
         </Card>
       </div>
@@ -430,7 +436,7 @@ export default function DomainDetailPage() {
                       <TableHead className="text-right">延迟</TableHead>
                       <TableHead className="hidden text-right lg:table-cell">抖动</TableHead>
                       <TableHead className="hidden text-right lg:table-cell">丢包</TableHead>
-                      <TableHead className="hidden text-right lg:table-cell">HTTP</TableHead>
+                      <TableHead className="hidden text-right lg:table-cell">HTTP 往返</TableHead>
                       <TableHead className="hidden text-right md:table-cell">下载</TableHead>
                       <TableHead className="hidden md:table-cell">机房</TableHead>
                       <TableHead className="text-right">评分</TableHead>
@@ -447,13 +453,13 @@ export default function DomainDetailPage() {
                           {r.latency.toFixed(0)} ms
                         </TableCell>
                         <TableCell className="hidden text-right tabular-nums text-muted-foreground lg:table-cell">
-                          {r.jitter.toFixed(0)}
+                          {r.jitter.toFixed(0)} ms
                         </TableCell>
                         <TableCell className="hidden text-right tabular-nums text-muted-foreground lg:table-cell">
                           {r.loss.toFixed(0)}%
                         </TableCell>
                         <TableCell className="hidden text-right tabular-nums text-muted-foreground lg:table-cell">
-                          {r.httpRtt > 0 ? r.httpRtt.toFixed(0) : "—"}
+                          {r.httpRtt > 0 ? `${r.httpRtt.toFixed(0)} ms` : "—"}
                         </TableCell>
                         <TableCell className="hidden text-right tabular-nums md:table-cell">
                           {r.speed > 0 ? `${r.speed.toFixed(1)} Mbps` : "—"}
