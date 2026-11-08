@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { AppSidebar } from "@/components/app-sidebar"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { GlobalProgress } from "@/components/global-progress";
 import { Toaster } from "@/components/ui/sonner";
 import {
@@ -33,8 +34,10 @@ function Shell({ children }: { children: ReactNode }) {
   return (
     <SidebarProvider defaultOpen={defaultOpen}>
       <AppSidebar />
-      <SidebarInset className="min-w-0">
-        <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur">
+      {/* 滚动交给 ScrollArea：外层限高 + flex 列，滚动条才是 shadcn 那套
+          细的、跟主题走的样式，而不是各平台原生那条 */}
+      <SidebarInset className="h-svh min-w-0 overflow-hidden">
+        <header className="flex h-14 shrink-0 items-center gap-2 border-b bg-background/80 px-4 backdrop-blur">
           <SidebarTrigger />
           <Separator orientation="vertical" className="mr-1 h-4" />
           <span className="text-sm font-medium">EdgePilot</span>
@@ -42,7 +45,11 @@ function Shell({ children }: { children: ReactNode }) {
             · 边缘优选调度
           </span>
         </header>
-        <main className="flex-1 p-4 md:p-6">{children}</main>
+        <div className="min-h-0 flex-1">
+          <ScrollArea className="h-full">
+            <main className="p-4 md:p-6">{children}</main>
+          </ScrollArea>
+        </div>
       </SidebarInset>
     </SidebarProvider>
   );
