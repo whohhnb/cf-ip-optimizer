@@ -16,6 +16,7 @@ Environment=PILOT_BASE_URL=https://edgepilot.example.com
 # 固定密钥：丢失后所有 DNS 凭据需要重新录入
 Environment=PILOT_SECRET=请替换为 32 位以上随机字符串
 Environment=TZ=Asia/Shanghai
+# 也可以把配置写在 /opt/edgepilot/.env（二进制会自动加载，下面的 Environment= 优先）
 ExecStart=/opt/edgepilot/edgepilot
 Restart=on-failure
 RestartSec=3

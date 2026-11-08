@@ -16,6 +16,11 @@ type Config struct {
 	BaseURL    string
 	LogLevel   string
 	TrustProxy bool
+
+	// EnvFile is the .env that was auto-loaded, empty when none was found.
+	// EnvFileVars counts the variables it actually applied.
+	EnvFile     string
+	EnvFileVars int
 }
 
 func env(key, def string) string {
@@ -25,7 +30,74 @@ func env(key, def string) string {
 	return def
 }
 
+// loadDotEnv reads a KEY=VALUE file and sets any variable that is not already
+// present in the real environment. Real environment variables always win, so
+// `Environment=` in systemd or `-e` in docker still overrides the file.
+func loadDotEnv(path string) (int, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, false
+	}
+	applied := 0
+	for _, raw := range strings.Split(string(data), "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		line = strings.TrimPrefix(line, "export ")
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		if key == "" {
+			continue
+		}
+		if _, exists := os.LookupEnv(key); exists {
+			continue
+		}
+		val = strings.TrimSpace(val)
+		if len(val) >= 2 {
+			if (val[0] == '"' && val[len(val)-1] == '"') || (val[0] == '\'' && val[len(val)-1] == '\'') {
+				val = val[1 : len(val)-1]
+			}
+		}
+		if err := os.Setenv(key, val); err == nil {
+			applied++
+		}
+	}
+	return applied, true
+}
+
+// findDotEnv looks next to the working directory first (systemd sets it to the
+// install dir), then next to the executable, which is where people usually drop
+// the file when they start it by hand.
+func findDotEnv() (string, int) {
+	candidates := []string{".env"}
+	if exe, err := os.Executable(); err == nil {
+		candidates = append(candidates, filepath.Join(filepath.Dir(exe), ".env"))
+	}
+	seen := map[string]bool{}
+	for _, p := range candidates {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			abs = p
+		}
+		if seen[abs] {
+			continue
+		}
+		seen[abs] = true
+		if n, ok := loadDotEnv(abs); ok {
+			return abs, n
+		}
+	}
+	return "", 0
+}
+
 func Load() Config {
+	// 先加载 .env：它可能定义了 PILOT_DATA_DIR 等后续要读的变量
+	envFile, envFileVars := findDotEnv()
+
 	dataDir := env("PILOT_DATA_DIR", defaultDataDir())
 	_ = os.MkdirAll(dataDir, 0o755)
 
@@ -46,6 +118,9 @@ func Load() Config {
 		BaseURL:    strings.TrimRight(env("PILOT_BASE_URL", ""), "/"),
 		LogLevel:   env("PILOT_LOG_LEVEL", "info"),
 		TrustProxy: trust,
+
+		EnvFile:     envFile,
+		EnvFileVars: envFileVars,
 	}
 }
 
