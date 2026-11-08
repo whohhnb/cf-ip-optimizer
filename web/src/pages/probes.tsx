@@ -4,6 +4,7 @@ import {
   Check,
   Copy,
   Loader2,
+  Pencil,
   Plus,
   Router,
   Trash2,
@@ -75,8 +76,10 @@ export default function ProbesPage() {
   const [loading, setLoading] = useState(true)
 
   const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState<Probe | null>(null)
   const [name, setName] = useState("")
   const [line, setLine] = useState("电信")
+  const [concurrency, setConcurrency] = useState("0")
   const [saving, setSaving] = useState(false)
 
   const [issued, setIssued] = useState<{ name: string; token: string } | null>(null)
@@ -104,9 +107,11 @@ export default function ProbesPage() {
     return () => window.clearInterval(timer)
   }, [load])
 
-  function openCreate() {
-    setName("")
-    setLine("电信")
+  function openDialog(probe?: Probe) {
+    setEditing(probe ?? null)
+    setName(probe?.name ?? "")
+    setLine(probe?.line ?? "电信")
+    setConcurrency(String(probe?.concurrency ?? 0))
     setOpen(true)
   }
 
@@ -117,10 +122,21 @@ export default function ProbesPage() {
     }
     setSaving(true)
     try {
-      const res = await api.createProbe({ name: name.trim(), line })
-      setOpen(false)
-      setIssued({ name: res.probe.name, token: res.token })
-      setCopied(false)
+      const body = {
+        name: name.trim(),
+        line,
+        concurrency: Number(concurrency) || 0,
+      }
+      if (editing) {
+        await api.updateProbe(editing.id, body)
+        toast.success("已保存")
+        setOpen(false)
+      } else {
+        const res = await api.createProbe(body)
+        setOpen(false)
+        setIssued({ name: res.probe.name, token: res.token })
+        setCopied(false)
+      }
       void load()
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "创建失败")
@@ -163,7 +179,7 @@ export default function ProbesPage() {
             把探针部署在电信 / 联通 / 移动的机器上，各线路才能测到自己视角下的最优 IP
           </p>
         </div>
-        <Button onClick={openCreate}>
+        <Button onClick={() => openDialog()}>
           <Plus />
           添加探针
         </Button>
@@ -189,7 +205,7 @@ export default function ProbesPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button variant="outline" onClick={openCreate}>
+            <Button variant="outline" onClick={() => openDialog()}>
               <Plus />
               添加第一个探针
             </Button>
@@ -235,12 +251,22 @@ export default function ProbesPage() {
                       <dd className="font-mono">{p.version || "—"}</dd>
                     </div>
                     <div className="flex justify-between gap-2">
+                      <dt>并发上限</dt>
+                      <dd className="tabular-nums">
+                        {p.concurrency > 0 ? p.concurrency : "跟随全局"}
+                      </dd>
+                    </div>
+                    <div className="flex justify-between gap-2">
                       <dt>令牌</dt>
                       <dd className="font-mono">{p.tokenHint}…</dd>
                     </div>
                   </dl>
                 </CardContent>
-                <CardFooter className="justify-end">
+                <CardFooter className="justify-end gap-1">
+                  <Button variant="ghost" size="sm" onClick={() => openDialog(p)}>
+                    <Pencil />
+                    编辑
+                  </Button>
                   <Button variant="ghost" size="sm" onClick={() => setRemoving(p)}>
                     <Trash2 />
                     删除
@@ -255,9 +281,11 @@ export default function ProbesPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>添加探针</DialogTitle>
+            <DialogTitle>{editing ? `编辑探针「${editing.name}」` : "添加探针"}</DialogTitle>
             <DialogDescription>
-              线路只是标记这台机器在哪个网络，用于和域名的解析线路对应
+              {editing
+                ? "令牌不可更换，改了会与正在运行的探针失联；需要换令牌请新建一个"
+                : "线路只是标记这台机器在哪个网络，用于和域名的解析线路对应"}
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-4">
@@ -285,6 +313,21 @@ export default function ProbesPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="grid gap-2">
+              <Label htmlFor="probe-conc">并发上限</Label>
+              <Input
+                id="probe-conc"
+                type="number"
+                min={0}
+                max={256}
+                className="max-w-40"
+                value={concurrency}
+                onChange={(e) => setConcurrency(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                0 表示跟随系统设置。家宽路由器的 NAT 表只有几千条，建议 16–24；独立服务器可以用 48 甚至更高
+              </p>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>
@@ -292,7 +335,7 @@ export default function ProbesPage() {
             </Button>
             <Button onClick={() => void save()} disabled={saving}>
               {saving ? <Loader2 className="animate-spin" /> : null}
-              创建
+              {editing ? "保存" : "创建"}
             </Button>
           </DialogFooter>
         </DialogContent>

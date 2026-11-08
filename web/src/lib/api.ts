@@ -63,6 +63,8 @@ export type Domain = {
   rootDomain: string
   subDomain: string
   recordLine: string
+  /** per-line colo whitelist, empty = follow the system setting */
+  coloAllow: string
   probeId: number
   ttl: number
   slots: number
@@ -81,6 +83,8 @@ export type Probe = {
   userId: number
   name: string
   line: string
+  /** scan concurrency for this agent, 0 = follow the global setting */
+  concurrency: number
   tokenHint: string
   version: string
   lastIp: string
@@ -273,9 +277,18 @@ export const api = {
 
   probes: () => http<{ probes: Probe[] }>("/api/probes"),
 
-  createProbe: (body: { name: string; line: string }) =>
+  createProbe: (body: { name: string; line: string; concurrency: number }) =>
     http<{ probe: Probe; token: string }>("/api/probes", {
       method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateProbe: (
+    id: number,
+    body: { name: string; line: string; concurrency: number },
+  ) =>
+    http<{ probe: Probe }>(`/api/probes/${id}`, {
+      method: "PUT",
       body: JSON.stringify(body),
     }),
 

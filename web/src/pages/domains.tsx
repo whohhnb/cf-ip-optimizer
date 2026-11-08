@@ -65,6 +65,7 @@ type FormState = {
   rootDomain: string
   subDomain: string
   recordLine: string
+  coloAllow: string
   probeId: string
   ttl: string
   slots: string
@@ -78,6 +79,7 @@ const emptyForm: FormState = {
   rootDomain: "",
   subDomain: "@",
   recordLine: "默认",
+  coloAllow: "",
   probeId: "0",
   ttl: "600",
   slots: "2",
@@ -183,6 +185,7 @@ export default function DomainsPage() {
       rootDomain: d.rootDomain,
       subDomain: d.subDomain,
       recordLine: d.recordLine || "默认",
+      coloAllow: d.coloAllow || "",
       probeId: String(d.probeId ?? 0),
       ttl: String(d.ttl),
       slots: String(d.slots),
@@ -209,6 +212,7 @@ export default function DomainsPage() {
       autoPush: form.autoPush,
       enabled: form.enabled,
       recordLine: lineValue,
+      coloAllow: form.coloAllow.trim(),
       probeId: Number(form.probeId || 0),
     }
     try {
@@ -514,6 +518,20 @@ export default function DomainsPage() {
                   </p>
                 )}
               </div>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="colo">机房白名单（这条线路专用）</Label>
+              <Input
+                id="colo"
+                className="max-w-64 font-mono uppercase"
+                placeholder="留空跟随系统设置，如 HKG,NRT"
+                value={form.coloAllow}
+                onChange={(e) => setForm((s) => ({ ...s, coloAllow: e.target.value }))}
+              />
+              <p className="text-xs text-muted-foreground">
+                不同运营商的最优机房不一样：移动常落 NRT、电信常落 HKG。这条留空就用系统设置的全局白名单
+              </p>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-3">
