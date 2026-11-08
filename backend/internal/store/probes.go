@@ -78,12 +78,21 @@ func (s *Store) ProbeByTokenHash(hash string) (*model.Probe, error) {
 	return p, err
 }
 
+// ErrProbeInUse is returned when a probe still has domains bound to it.
+var ErrProbeInUse = errors.New("probe still bound to domains")
+
 func (s *Store) DeleteProbe(id, userID int64) error {
-	res, err := s.db.Exec(`DELETE FROM probes WHERE id=? AND user_id=?`, id, userID)
+	// 用一条语句同时完成「还有域名绑着就不删」，避免先数后删之间
+	// 有人新建域名绑定上来
+	res, err := s.db.Exec(`DELETE FROM probes WHERE id=? AND user_id=?
+		AND NOT EXISTS (SELECT 1 FROM domains WHERE probe_id=?)`, id, userID, id)
 	if err != nil {
 		return err
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		if cnt, _ := s.CountDomainsByProbe(id); cnt > 0 {
+			return ErrProbeInUse
+		}
 		return ErrNotFound
 	}
 	return nil
@@ -189,7 +198,7 @@ func (s *Store) FinishProbeTask(id int64, status, errMsg string) error {
 // died on). Without this a single crashed agent would block that domain's slot
 // forever, because "running" is only cleared when a result arrives.
 func (s *Store) ExpireProbeTasks(pendingBefore, runningBefore int64) ([]model.ProbeTask, error) {
-	rows, err := s.db.Query(`SELECT id,probe_id,domain_id,job_id FROM probe_tasks
+	rows, err := s.db.Query(`SELECT id,probe_id,domain_id,job_id,status FROM probe_tasks
 		WHERE (status='pending' AND created_at < ?) OR (status='running' AND started_at < ?)`,
 		pendingBefore, runningBefore)
 	if err != nil {
@@ -198,9 +207,16 @@ func (s *Store) ExpireProbeTasks(pendingBefore, runningBefore int64) ([]model.Pr
 	var expired []model.ProbeTask
 	for rows.Next() {
 		var t model.ProbeTask
-		if err := rows.Scan(&t.ID, &t.ProbeID, &t.DomainID, &t.JobID); err != nil {
+		if err := rows.Scan(&t.ID, &t.ProbeID, &t.DomainID, &t.JobID, &t.Status); err != nil {
 			rows.Close()
 			return nil, err
+		}
+		// 两种超时的原因完全不同：一个是探针根本没上线领任务，
+		// 一个是领了但跑挂了，排错方向不一样
+		if t.Status == "pending" {
+			t.Error = "探针未领取任务（可能离线或令牌失效）"
+		} else {
+			t.Error = "探针执行超时，未回传结果"
 		}
 		expired = append(expired, t)
 	}
@@ -212,7 +228,7 @@ func (s *Store) ExpireProbeTasks(pendingBefore, runningBefore int64) ([]model.Pr
 	nowT := now()
 	for _, t := range expired {
 		_, _ = s.db.Exec(`UPDATE probe_tasks SET status='failed', error=?, finished_at=? WHERE id=?`,
-			"探针超时未返回结果", nowT, t.ID)
+			t.Error, nowT, t.ID)
 	}
 	return expired, nil
 }

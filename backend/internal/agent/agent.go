@@ -194,7 +194,11 @@ func runTask(parent context.Context, c *http.Client, cfg Config, t taskBody) {
 	var ack struct {
 		Pushed int `json:"pushed"`
 	}
-	if err := doJSON(ctx, c, http.MethodPost, url, cfg.Token, body, &ack); err != nil {
+	// 退出信号会取消 ctx，但结果还是要尽力送出去：否则这条任务要等主控
+	// 20 分钟超时才会释放，那段时间该域名完全不会再扫
+	postCtx, cancel := context.WithTimeout(context.WithoutCancel(parent), 15*time.Second)
+	defer cancel()
+	if err := doJSON(postCtx, c, http.MethodPost, url, cfg.Token, body, &ack); err != nil {
 		log.Printf("上报结果失败: %v", err)
 		return
 	}

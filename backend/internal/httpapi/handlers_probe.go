@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"edgepilot/internal/logx"
 	"edgepilot/internal/model"
 	"edgepilot/internal/service"
+	"edgepilot/internal/store"
 )
 
 // Probe token format: "ep_" + 48 hex chars. Only the SHA-256 digest is stored,
@@ -113,16 +115,13 @@ func (s *Server) handleDeleteProbe(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, "参数有误")
 		return
 	}
-	n, err := s.st.CountDomainsByProbe(id)
-	if err != nil {
-		fail(w, http.StatusInternalServerError, "删除失败")
-		return
-	}
-	if n > 0 {
-		fail(w, http.StatusConflict, "还有 "+strconv.Itoa(n)+" 个域名绑定该探针，请先改绑到其他探针或本机")
-		return
-	}
 	if err := s.st.DeleteProbe(id, u.ID); err != nil {
+		if errors.Is(err, store.ErrProbeInUse) {
+			n, _ := s.st.CountDomainsByProbe(id)
+			fail(w, http.StatusConflict,
+				"还有 "+strconv.Itoa(n)+" 个域名绑定该探针，请先改绑到其他探针或本机")
+			return
+		}
 		fail(w, http.StatusNotFound, "探针不存在")
 		return
 	}
@@ -143,7 +142,12 @@ func (s *Server) handleProbeHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in heartbeatIn
-	_ = decode(r, &in)
+	if r.ContentLength > 0 {
+		if err := decode(r, &in); err != nil {
+			fail(w, http.StatusBadRequest, "请求格式有误")
+			return
+		}
+	}
 	_ = s.st.TouchProbe(p.ID, s.clientIP(r), strings.TrimSpace(in.Version))
 	ok(w, map[string]any{
 		"probeId":     p.ID,

@@ -418,10 +418,12 @@ func (s *Server) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 	// Kick off the first scan right away instead of waiting for the scheduler
 	// tick, so the user sees results within seconds of saving the domain.
 	var job *model.ScanJob
+	var warning string
 	if d.Enabled {
 		j, err := s.svc.StartScan(context.Background(), d, "create")
 		if err != nil {
-			logx.Log(u.ID, d.ID, logx.Warn, "首次扫描未能启动: "+err.Error())
+			warning = "域名已保存，但首次扫描未能启动：" + err.Error()
+			logx.Log(u.ID, d.ID, logx.Warn, warning)
 		} else {
 			job = j
 			// reflect the status StartScan just wrote instead of returning a
@@ -431,7 +433,7 @@ func (s *Server) handleCreateDomain(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	ok(w, map[string]any{"domain": d, "job": job})
+	ok(w, map[string]any{"domain": d, "job": job, "warning": warning})
 }
 
 func (s *Server) handleGetDomain(w http.ResponseWriter, r *http.Request) {

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,15 +80,6 @@ func (p ProbeOptions) Options(host string) scanner.Options {
 		NoSpeedTest: p.NoSpeedTest,
 		Seeds:       p.Seeds,
 	}
-}
-
-// DecodeProbePayload turns a stored task body back into scan options.
-func DecodeProbePayload(raw string) (ProbePayload, scanner.Options, error) {
-	var p ProbePayload
-	if err := json.Unmarshal([]byte(raw), &p); err != nil {
-		return ProbePayload{}, scanner.Options{}, err
-	}
-	return p, p.Options.Options(p.Host), nil
 }
 
 // ProbeReport is what an agent posts back after running a scan.
@@ -215,7 +207,7 @@ func (s *Service) SubmitProbeResult(ctx context.Context, probeID, taskID int64, 
 		_ = s.Store.SetDomainStatus(d.ID, "ok", "")
 	}
 
-	_ = s.Store.UpdateJobProgress(task.JobID, rep.Tested, len(results), 100, "完成")
+	_ = s.Store.UpdateJobProgress(task.JobID, clampCount(rep.Tested), len(results), 100, "完成")
 	_ = s.Store.FinishJob(task.JobID, "done", "", top.IP, top.Latency, top.Speed, pushed)
 	_ = s.Store.FinishProbeTask(task.ID, "done", "")
 	_ = s.Store.TouchDomainScan(d.ID)
@@ -223,7 +215,7 @@ func (s *Service) SubmitProbeResult(ctx context.Context, probeID, taskID int64, 
 	s.Hub.Publish(scanner.Event{
 		Type: "done", JobID: task.JobID, DomainID: d.ID, Stage: "完成",
 		Tested: rep.Tested, Total: rep.Tested, OK: len(results), Progress: 100,
-		Msg: "探针回传 " + itoa(len(results)) + " 个节点，最优 " + top.IP,
+		Msg: "探针回传 " + strconv.Itoa(len(results)) + " 个节点，最优 " + top.IP,
 	})
 	return pushCount, nil
 }
@@ -263,6 +255,18 @@ func sanitizeProbeResults(in []model.ScanResult) []model.ScanResult {
 		out = append(out, r)
 	}
 	return out
+}
+
+// clampCount keeps a misbehaving agent from writing absurd counters into the
+// job table (the UI shows them directly).
+func clampCount(n int) int {
+	if n < 0 {
+		return 0
+	}
+	if n > 100000 {
+		return 100000
+	}
+	return n
 }
 
 func clampF(v, lo, hi float64) float64 {
@@ -318,7 +322,10 @@ func (s *Service) expireProbeTasks() {
 		if derr != nil {
 			continue
 		}
-		msg := "探针超时未返回结果"
+		msg := task.Error
+		if msg == "" {
+			msg = "探针超时未返回结果"
+		}
 		s.markRunning(d.ID, false)
 		_ = s.Store.FinishJob(task.JobID, "failed", msg, "", 0, 0, false)
 		_ = s.Store.SetDomainStatus(d.ID, "error", msg)
@@ -327,5 +334,3 @@ func (s *Service) expireProbeTasks() {
 		s.Hub.Publish(scanner.Event{Type: "error", JobID: task.JobID, DomainID: d.ID, Error: msg})
 	}
 }
-
-func itoa(n int) string { return fmt.Sprintf("%d", n) }

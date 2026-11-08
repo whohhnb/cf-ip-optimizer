@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"edgepilot/internal/logx"
 	"edgepilot/internal/model"
 
 	_ "modernc.org/sqlite"
@@ -93,8 +94,6 @@ CREATE TABLE IF NOT EXISTS probes (
   last_seen_at INTEGER NOT NULL DEFAULT 0,
   created_at   INTEGER NOT NULL
 );
-
-CREATE INDEX IF NOT EXISTS idx_domains_host_line ON domains(user_id, root_domain, sub_domain, record_line);
 
 CREATE TABLE IF NOT EXISTS probe_tasks (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -215,6 +214,18 @@ func (s *Store) migrate() error {
 			return fmt.Errorf("migrate results: %w", err)
 		}
 	}
+	// 同一主机名 + 同一线路只能有一份配置：代码里已有校验，但校验和插入之间
+	// 仍有窗口，唯一索引才是最终防线。老库里若已有重复数据，降级为普通索引
+	// 并留一条告警，不阻断启动
+	if _, err := s.db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS uniq_domains_host_line
+		ON domains(user_id, root_domain, sub_domain, record_line)`); err != nil {
+		if _, e2 := s.db.Exec(`CREATE INDEX IF NOT EXISTS idx_domains_host_line
+			ON domains(user_id, root_domain, sub_domain, record_line)`); e2 != nil {
+			return fmt.Errorf("migrate domains index: %w", e2)
+		}
+		logx.Warnf(0, 0, "domains 表存在同一主机名+线路的重复配置，已跳过唯一索引；请手动清理后再重启")
+	}
+
 	if !cols["credentials"] {
 		for _, stmt := range []string{
 			`ALTER TABLE dns_accounts ADD COLUMN meta TEXT NOT NULL DEFAULT ''`,
