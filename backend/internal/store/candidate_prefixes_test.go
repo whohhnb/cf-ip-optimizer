@@ -7,6 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"edgepilot/internal/model"
 )
 
 func newTestStore(t *testing.T) *Store {
@@ -111,6 +114,70 @@ func TestScanPipelineNeverWritesPrefixes(t *testing.T) {
 			if strings.Contains(src, bad) {
 				t.Errorf("%s 里出现了 %s：扫描流程不允许写候选前缀", f, bad)
 			}
+		}
+	}
+}
+
+// 守卫：观测数据不得回流到候选生成。
+// 观测表只服务于设置页展示；一旦被 buildCandidates / sampleFromPrefixes 读到，
+// 就变成「用历史结论决定下一轮候选」，违背「配置不是记忆」这条红线。
+func TestObservationNeverFeedsCandidateGeneration(t *testing.T) {
+	files := []string{
+		"../scanner/engine.go",
+		"../scanner/ranges.go",
+	}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatalf("read %s: %v", f, err)
+		}
+		src := string(b)
+		for _, bad := range []string{"PrefixCheck", "ListPrefixChecks", "candidate_prefix_checks"} {
+			if strings.Contains(src, bad) {
+				t.Errorf("%s 里出现了 %s：扫描器不允许读观测数据", f, bad)
+			}
+		}
+	}
+}
+
+func TestSaveAndPrunePrefixChecks(t *testing.T) {
+	st := newTestStore(t)
+	_ = st.ReplaceCandidatePrefixes("电信", []string{"172.64.53.0/24", "108.162.198.0/24"})
+	now := time.Now()
+	_ = st.SavePrefixChecks("电信", []model.PrefixCheck{
+		{Prefix: "172.64.53.0/24", Colo: "NRT", Latency: 52, Samples: 3, OKCount: 3, CheckedAt: now},
+		{Prefix: "108.162.198.0/24", Colo: "NRT", Latency: 55, Samples: 2, OKCount: 1, CheckedAt: now},
+	})
+	lines, err := st.ListPrefixChecks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lines["电信"]) != 2 {
+		t.Fatalf("观测条数不对: %+v", lines)
+	}
+	byPrefix := map[string]model.PrefixCheck{}
+	for _, c := range lines["电信"] {
+		byPrefix[c.Prefix] = c
+	}
+	if byPrefix["172.64.53.0/24"].OKCount != 3 || byPrefix["108.162.198.0/24"].OKCount != 1 {
+		t.Fatalf("OKCount 读取不对: %+v", lines)
+	}
+	// 覆盖写，不累积
+	_ = st.SavePrefixChecks("电信", []model.PrefixCheck{
+		{Prefix: "172.64.53.0/24", Colo: "LAX", Latency: 200, Samples: 1, OKCount: 0, CheckedAt: now},
+	})
+	lines, _ = st.ListPrefixChecks()
+	for _, c := range lines["电信"] {
+		if c.Prefix == "172.64.53.0/24" && (c.Colo != "LAX" || c.Latency != 200 || c.OKCount != 0) {
+			t.Fatalf("覆盖写失败: %+v", c)
+		}
+	}
+	// 配置删了，观测一起清掉
+	_ = st.DeleteCandidatePrefix("电信", "108.162.198.0/24")
+	lines, _ = st.ListPrefixChecks()
+	for _, c := range lines["电信"] {
+		if c.Prefix == "108.162.198.0/24" {
+			t.Fatalf("删除配置后仍残留观测: %+v", c)
 		}
 	}
 }

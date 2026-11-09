@@ -18,31 +18,61 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { api } from "@/lib/api"
+import { api, type PrefixCheck } from "@/lib/api"
+import { relativeTime } from "@/lib/time"
+import { cn } from "@/lib/utils"
 
 const LINES = ["默认", "电信", "联通", "移动", "教育网", "境外"]
 
 export function CandidatePrefixCard() {
   const [lines, setLines] = useState<Record<string, string[]>>({})
+  const [checks, setChecks] = useState<Record<string, PrefixCheck[]>>({})
   const [line, setLine] = useState("电信")
   const [draft, setDraft] = useState("")
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
 
-  const apply = useCallback((all: Record<string, string[]>, target: string) => {
-    setLines(all)
-    setDraft((all[target] ?? []).join("\n"))
-  }, [])
+  const apply = useCallback(
+    (all: Record<string, string[]>, found: Record<string, PrefixCheck[]>, target: string) => {
+      setLines(all)
+      setChecks(found)
+      setDraft((all[target] ?? []).join("\n"))
+    },
+    []
+  )
 
   useEffect(() => {
     api
       .candidatePrefixes()
-      .then((d) => apply(d.lines ?? {}, "电信"))
+      .then((d) => apply(d.lines ?? {}, d.checks ?? {}, "电信"))
       .catch((e) => toast.error(e instanceof Error ? e.message : "读取候选前缀失败"))
       .finally(() => setLoading(false))
   }, [apply])
 
   const current = lines[line] ?? []
+
+  const checkOf = (prefix: string) => (checks[line] ?? []).find((c) => c.prefix === prefix)
+
+  // 观测只用于展示：告诉用户「上次扫描时这个段还落 NRT 吗、多快」。
+  // 它不会改变清单，也不会因为某次变慢就自动删掉前缀。
+  // 数据源是扫描的最终结果，不是整段连通性体检 —— 文案必须说清这个区别。
+  const checkLabel = (c?: PrefixCheck) => {
+    if (!c) return "尚无扫描结果"
+    const when = relativeTime(c.checkedAt)
+    if (c.samples === 0) return `本轮未入选 · ${when}`
+    const lat = c.latency > 0 ? `中位 ${Math.round(c.latency)}ms` : "—"
+    const ok = `${c.okCount}/${c.samples} 通过`
+    return c.colo
+      ? `${c.colo} · ${lat} · ${ok} · ${when}`
+      : `${lat} · ${ok} · ${when}`
+  }
+
+  const checkTone = (c?: PrefixCheck) => {
+    if (!c || c.samples === 0) return "text-muted-foreground"
+    // 一个段里出现多个落点，或者全部没通过 HTTP 校验，都值得看一眼
+    if (c.colo.includes("/") || c.okCount === 0) return "text-destructive"
+    return "text-muted-foreground"
+  }
 
   const onLine = (v: string | null) => {
     const next = v || "默认"
@@ -124,20 +154,34 @@ export function CandidatePrefixCard() {
           <>
             {current.length > 0 ? (
               <div className="divide-y rounded-lg border">
-                {current.map((p) => (
-                  <div key={p} className="flex items-center justify-between gap-3 px-3 py-2">
-                    <code className="text-sm">{p}</code>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="size-7 text-muted-foreground hover:text-destructive"
-                      onClick={() => remove(p)}
-                      aria-label={`删除 ${p}`}
-                    >
-                      <Trash2 className="size-3.5" />
-                    </Button>
-                  </div>
-                ))}
+                {current.map((p) => {
+                  const c = checkOf(p)
+                  return (
+                    <div key={p} className="flex items-center justify-between gap-3 px-3 py-2">
+                      <code className="text-sm">{p}</code>
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span
+                          className={cn(
+                            "truncate text-xs",
+                            checkTone(c)
+                          )}
+                          title={c ? `${c.samples} 个地址进入最终结果 · ${c.okCount} 个通过校验` : undefined}
+                        >
+                          {checkLabel(c)}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-7 shrink-0 text-muted-foreground hover:text-destructive"
+                          onClick={() => remove(p)}
+                          aria-label={`删除 ${p}`}
+                        >
+                          <Trash2 className="size-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
             ) : (
               <div className="rounded-lg border border-dashed px-4 py-6 text-center">
@@ -176,6 +220,9 @@ export function CandidatePrefixCard() {
 
             <div className="rounded-lg bg-muted/50 px-3 py-2.5 text-xs leading-relaxed text-muted-foreground">
               <p>扫描时每个前缀最多取 3 个地址实测，测出来什么就是什么——这张表只决定「往哪看」，选谁下发仍由当轮结果决定。</p>
+              <p className="mt-1">
+                右侧是上次扫描的<strong>最终结果</strong>里这些段的表现（中位延迟、落点、通过数），不是整段连通性测试；「本轮未入选」不代表段连不上。
+              </p>
               <p className="mt-1">
                 三网前缀不通用：同一个 /24 在电信可能落东京、移动落香港、联通落洛杉矶，每条线路要各配一份。
               </p>

@@ -169,3 +169,21 @@ type ProbeTask struct {
 	StartedAt  *time.Time `json:"startedAt"`
 	FinishedAt *time.Time `json:"finishedAt"`
 }
+
+// PrefixCheck is the last observation of a configured prefix in a scan's
+// final results.
+//
+// 这是「观测」，不是「配置」：只用来在设置页显示「上次扫描时这个段落哪、
+// 多快」，不参与候选生成，也不会改变清单本身。
+//
+// 数据来源是扫描的最终结果（out.Results，只含通过延迟过滤的存活节点），
+// 不是「整段连通性体检」：Samples=0 只说明本轮没有该段的地址进入最终结果，
+// 不代表这个段连不上。Latency 取中位数，避免单次最快值误导。
+type PrefixCheck struct {
+	Prefix    string    `json:"prefix"`
+	Colo      string    `json:"colo"`    // 落点集合，多个用 / 分隔
+	Latency   float64   `json:"latency"` // 中位延迟 ms
+	Samples   int       `json:"samples"` // 进入最终结果的地址数
+	OKCount   int       `json:"okCount"` // 其中通过 HTTP 校验的地址数
+	CheckedAt time.Time `json:"checkedAt"`
+}

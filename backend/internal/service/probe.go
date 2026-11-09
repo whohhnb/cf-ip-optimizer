@@ -326,6 +326,7 @@ func (s *Service) finishJobIfReady(ctx context.Context, jobID int64, d *model.Do
 	if err := s.Store.InsertResults(jobID, merged); err != nil {
 		return 0, fmt.Errorf("保存结果失败: %w", err)
 	}
+	s.recordPrefixChecks(d, merged)
 
 	top := merged[0]
 	note := ""

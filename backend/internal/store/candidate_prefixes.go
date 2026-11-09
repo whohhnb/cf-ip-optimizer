@@ -70,6 +70,12 @@ func (s *Store) ReplaceCandidatePrefixes(line string, prefixes []string) error {
 			return err
 		}
 	}
+	// 清掉已经不在清单里的观测，避免设置页残留「幽灵前缀」
+	if _, err := tx.Exec(`DELETE FROM candidate_prefix_checks
+		WHERE line = ? AND prefix NOT IN (SELECT prefix FROM candidate_prefixes WHERE line = ?)`,
+		line, line); err != nil {
+		return err
+	}
 	return tx.Commit()
 }
 
@@ -87,5 +93,7 @@ func (s *Store) DeleteCandidatePrefix(line, prefix string) error {
 	if n == 0 {
 		return sql.ErrNoRows
 	}
+	// 配置删了，观测也没有意义
+	_, _ = s.db.Exec(`DELETE FROM candidate_prefix_checks WHERE line = ? AND prefix = ?`, line, prefix)
 	return nil
 }

@@ -1,5 +1,18 @@
 import { http } from "@/lib/http"
 
+export type PrefixCheck = {
+  prefix: string
+  /** 上次扫描该段落点集合；多个用 / 分隔；空 = 没拿到落点 */
+  colo: string
+  /** 中位延迟（ms），不是单次最快值 */
+  latency: number
+  /** 进入扫描最终结果的地址数；0 = 本轮未入选，不代表段连不上 */
+  samples: number
+  /** 其中通过 HTTP 校验的地址数 */
+  okCount: number
+  checkedAt: string
+}
+
 export type User = {
   id: number
   email: string
@@ -357,7 +370,10 @@ export const api = {
     }),
 
   candidatePrefixes: () =>
-    http<{ lines: Record<string, string[]> }>("/api/candidate-prefixes"),
+    http<{
+      lines: Record<string, string[]>
+      checks?: Record<string, PrefixCheck[]>
+    }>("/api/candidate-prefixes"),
 
   saveCandidatePrefixes: (line: string, prefixes: string[]) =>
     http<{ line: string; prefixes: string[] }>("/api/candidate-prefixes", {

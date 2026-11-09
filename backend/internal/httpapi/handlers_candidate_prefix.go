@@ -28,7 +28,12 @@ func (s *Server) handleListCandidatePrefixes(w http.ResponseWriter, r *http.Requ
 		fail(w, http.StatusInternalServerError, "读取候选前缀失败")
 		return
 	}
-	ok(w, map[string]any{"lines": lines})
+	// checks 是最近一次扫描的观测（落点/延迟），只用于展示，不参与候选生成
+	checks, err := s.st.ListPrefixChecks()
+	if err != nil {
+		checks = map[string][]model.PrefixCheck{}
+	}
+	ok(w, map[string]any{"lines": lines, "checks": checks})
 }
 
 func (s *Server) handlePutCandidatePrefixes(w http.ResponseWriter, r *http.Request) {

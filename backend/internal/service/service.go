@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -304,6 +305,7 @@ func (s *Service) execute(job *model.ScanJob, d model.Domain, opts scanner.Optio
 		keep = keep[:120]
 	}
 	_ = s.Store.InsertResults(job.ID, keep)
+	s.recordPrefixChecks(&d, keep)
 
 	var topIP string
 	var topLat, topSpeed float64
@@ -486,4 +488,97 @@ func (s *Service) HealthWatch(ctx context.Context, d *model.Domain) (bool, error
 		return true, nil
 	}
 	return false, nil
+}
+
+// recordPrefixChecks stores the last observation of each configured prefix.
+//
+// 只写 candidate_prefix_checks（观测表），绝不碰 candidate_prefixes（配置表）。
+// 用途是回答「上次扫描时这个段还落 NRT 吗、多快」，供设置页展示；它不参与
+// 候选生成，也不会因为某次变慢就自动把前缀删掉 —— 换不换由人决定。
+//
+// 数据源是扫描的最终结果，只含通过延迟过滤的存活节点，且可能被截断到前
+// 120 条。所以「Samples=0」的含义是「本轮没有该段的地址进入最终结果」，
+// 不是「这个段连不上」。展示时必须把这个区别讲清楚。
+func (s *Service) recordPrefixChecks(d *model.Domain, results []model.ScanResult) {
+	line := model.LineKey(d.RecordLine)
+	prefixes := s.Store.CandidatePrefixes(line)
+	if len(prefixes) == 0 {
+		return
+	}
+
+	want := make(map[string]struct{}, len(prefixes))
+	for _, p := range prefixes {
+		want[p] = struct{}{}
+	}
+
+	type group struct {
+		lat   []float64
+		colos map[string]struct{}
+		total int
+		ok    int
+	}
+	groups := make(map[string]*group, len(prefixes))
+	for _, r := range results {
+		p := scanner.PrefixOf(r.IP)
+		if _, tracked := want[p]; !tracked {
+			continue
+		}
+		g := groups[p]
+		if g == nil {
+			g = &group{colos: make(map[string]struct{})}
+			groups[p] = g
+		}
+		g.total++
+		if r.OK {
+			g.ok++
+		}
+		if r.Latency > 0 {
+			g.lat = append(g.lat, r.Latency)
+		}
+		if r.Colo != "" {
+			g.colos[r.Colo] = struct{}{}
+		}
+	}
+
+	now := time.Now()
+	checks := make([]model.PrefixCheck, 0, len(prefixes))
+	for _, p := range prefixes {
+		c := model.PrefixCheck{Prefix: p, CheckedAt: now}
+		if g := groups[p]; g != nil {
+			c.Samples = g.total
+			c.OKCount = g.ok
+			c.Latency = medianFloat(g.lat)
+			colos := make([]string, 0, len(g.colos))
+			for x := range g.colos {
+				colos = append(colos, x)
+			}
+			sort.Strings(colos)
+			c.Colo = strings.Join(colos, "/")
+		}
+		// 本轮没有该段的结果也要写一条（Samples=0）：覆盖掉旧观测，
+		// 否则设置页会一直显示上次的落点，让人误以为还有效
+		checks = append(checks, c)
+	}
+
+	if err := s.Store.SavePrefixChecks(line, checks); err != nil {
+		logx.Debugf(d.UserID, d.ID, "%s 记录候选前缀观测失败 · %v", d.FullName(), err)
+		return
+	}
+	logx.Debugf(d.UserID, d.ID, "%s 候选前缀观测 · %d/%d 个段本轮有结果",
+		d.FullName(), len(groups), len(prefixes))
+}
+
+// medianFloat returns the median, never the minimum: we just proved that
+// ranking by a single lucky measurement picks the wrong prefixes.
+func medianFloat(v []float64) float64 {
+	if len(v) == 0 {
+		return 0
+	}
+	s := append([]float64(nil), v...)
+	sort.Float64s(s)
+	n := len(s)
+	if n%2 == 1 {
+		return s[n/2]
+	}
+	return (s[n/2-1] + s[n/2]) / 2
 }

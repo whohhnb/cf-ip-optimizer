@@ -192,6 +192,19 @@ CREATE TABLE IF NOT EXISTS candidate_prefixes (
   created_at INTEGER NOT NULL,
   PRIMARY KEY (line, prefix)
 );
+
+-- 候选前缀的最近一次观测：落点、延迟、样本数。
+-- 纯展示用，不参与候选生成；配置本身仍然只由人手改。
+CREATE TABLE IF NOT EXISTS candidate_prefix_checks (
+  line       TEXT NOT NULL,
+  prefix     TEXT NOT NULL,
+  colo       TEXT NOT NULL DEFAULT '',
+  latency    REAL NOT NULL DEFAULT 0,
+  samples    INTEGER NOT NULL DEFAULT 0,
+  ok_count   INTEGER NOT NULL DEFAULT 0,
+  checked_at INTEGER NOT NULL,
+  PRIMARY KEY (line, prefix)
+);
 `
 
 func (s *Store) migrate() error {
@@ -294,6 +307,16 @@ func (s *Store) migrate() error {
 			if _, err := s.db.Exec(stmt); err != nil {
 				return fmt.Errorf("migrate accounts: %w", err)
 			}
+		}
+	}
+	// 观测表在早期草稿里没有 ok_count，老库补一列
+	ccols, err := s.columns("candidate_prefix_checks")
+	if err != nil {
+		return err
+	}
+	if len(ccols) > 0 && !ccols["ok_count"] {
+		if _, err := s.db.Exec(`ALTER TABLE candidate_prefix_checks ADD COLUMN ok_count INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return fmt.Errorf("migrate prefix checks: %w", err)
 		}
 	}
 	return nil
