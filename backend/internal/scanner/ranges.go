@@ -203,3 +203,130 @@ func Sample(ranges []*net.IPNet, n int, rnd *rand.Rand) []string {
 	sort.Strings(out)
 	return out
 }
+
+// PrefixOf folds an IPv4 address into its /24 block.
+//
+// anycast 的落点按前缀宣告：同一个 /24 里换地址，客户端还是被送到同一个 PoP；
+// 跨一个 /24 就可能从东京变成洛杉矶。三网实测过，这个性质很稳定。
+func PrefixOf(ip string) string {
+	v4 := net.ParseIP(strings.TrimSpace(ip)).To4()
+	if v4 == nil {
+		return ""
+	}
+	mask := net.CIDRMask(24, 32)
+	return (&net.IPNet{IP: v4.Mask(mask), Mask: mask}).String()
+}
+
+// ParsePrefix accepts "172.64.53.0/24", "172.64.53.1" or "172.64.0.0/13" and
+// folds them all to the /24 that contains the address. The mask in the input
+// is validated but never trusted: the unit is always a /24, otherwise the same
+// block could be stored three times under three spellings.
+func ParsePrefix(raw string) *net.IPNet {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	addr := raw
+	if strings.Contains(raw, "/") {
+		if _, _, err := net.ParseCIDR(raw); err != nil {
+			return nil
+		}
+		addr = strings.SplitN(raw, "/", 2)[0]
+	}
+	block := PrefixOf(addr)
+	if block == "" {
+		return nil
+	}
+	_, n, err := net.ParseCIDR(block)
+	if err != nil {
+		return nil
+	}
+	return n
+}
+
+// InRanges reports whether p is fully inside one of the official ranges.
+//
+// 候选前缀只能来自官方段：放开的话，填一个 8.8.8.0/24 就能让扫描器去探测
+// 任意主机，既没意义也算半个 SSRF 入口。
+func InRanges(p *net.IPNet, ranges []*net.IPNet) bool {
+	if p == nil {
+		return false
+	}
+	ones, _ := p.Mask.Size()
+	for _, r := range ranges {
+		if !r.Contains(p.IP) {
+			continue
+		}
+		onesR, bitsR := r.Mask.Size()
+		if bitsR == 32 && onesR <= ones {
+			return true
+		}
+	}
+	return false
+}
+
+// CachedRanges returns the v4 ranges without triggering a network refresh.
+//
+// 校验路径必须立刻给答案，不能为了拿一份一年也不变的清单去等网络超时。
+func CachedRanges() []*net.IPNet {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	if len(cache.v4) > 0 {
+		return cache.v4
+	}
+	return parseCIDRs(fallbackV4)
+}
+
+// SampleInPrefixes draws perPrefix addresses from every prefix.
+//
+// 同一个 /24 里挑几个地址就够：落点由前缀决定，多测几个只是确认「这段现在
+// 还能连、延迟多少」，不需要把 256 个地址都过一遍。
+func SampleInPrefixes(prefixes []*net.IPNet, perPrefix int, rnd *rand.Rand) []string {
+	if perPrefix <= 0 || len(prefixes) == 0 {
+		return nil
+	}
+	seen := make(map[string]struct{}, len(prefixes)*perPrefix)
+	out := make([]string, 0, len(prefixes)*perPrefix)
+	for _, p := range prefixes {
+		ones, bits := p.Mask.Size()
+		if bits != 32 {
+			continue
+		}
+		if host := bits - ones; host > 8 {
+			if norm := ParsePrefix(p.IP.String()); norm != nil {
+				p = norm
+			} else {
+				continue
+			}
+		}
+		ones, bits = p.Mask.Size()
+		size := uint64(1) << uint(bits-ones)
+		base := ipToBigInt(p.IP)
+		for k := 0; k < perPrefix; k++ {
+			for attempt := 0; attempt < 12; attempt++ {
+				var off uint64
+				if size > 1 {
+					off = uint64(rnd.Int63n(int64(size)))
+				}
+				// 避开网络号和广播号
+				if size > 2 && (off == 0 || off == size-1) {
+					continue
+				}
+				// 不能写 base.Add(base, ...)：big.Int 的 Add 会改写接收者，
+				// 下一次循环就会在上一次结果上累加，地址会飘出前缀
+				ip := bigIntToIP(newBigInt(0).Add(base, newBigInt(off)), len(p.IP))
+				if ip == nil || !p.Contains(ip) {
+					continue
+				}
+				s := ip.String()
+				if _, dup := seen[s]; dup {
+					continue
+				}
+				seen[s] = struct{}{}
+				out = append(out, s)
+				break
+			}
+		}
+	}
+	return out
+}

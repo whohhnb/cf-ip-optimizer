@@ -108,6 +108,11 @@ func (s *Server) routes() {
 
 	m.HandleFunc("GET /api/settings", s.withAdmin(s.handleGetSettings))
 	m.HandleFunc("PUT /api/settings", s.withAdmin(s.handleUpdateSettings))
+
+	// 静态候选前缀：只有人手维护的两个写入口，扫描流程从不写这张表
+	m.HandleFunc("GET /api/candidate-prefixes", s.withAdmin(s.handleListCandidatePrefixes))
+	m.HandleFunc("PUT /api/candidate-prefixes", s.withAdmin(s.handlePutCandidatePrefixes))
+	m.HandleFunc("DELETE /api/candidate-prefixes", s.withAdmin(s.handleDeleteCandidatePrefix))
 	m.HandleFunc("GET /api/users", s.withAdmin(s.handleListUsers))
 	m.HandleFunc("DELETE /api/users/{id}", s.withAdmin(s.handleDeleteUser))
 

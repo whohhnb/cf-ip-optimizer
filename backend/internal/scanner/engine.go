@@ -41,6 +41,11 @@ type Options struct {
 	// drawing a fresh random set, because anycast means most new samples land
 	// on the same PoP anyway.
 	Seeds []string
+	// Prefixes is a static, operator-supplied list of /24 blocks that are
+	// known to land on a fast PoP for this line. It is a configuration, not a
+	// memory: nothing in the scan pipeline ever writes back to it, and the
+	// addresses are still chosen and scored fresh every round.
+	Prefixes []string
 	// Fixed makes the run measure exactly these addresses and nothing else.
 	// The controller sets it when several probes scan for one job: merging
 	// results by IP is only meaningful if every probe saw the same list.
@@ -355,17 +360,91 @@ func sanitizeFixed(in []string, limit int) []string {
 // PickCandidates builds the address list once, so every probe in a job scans
 // the same IPs. Two independent random samples out of 1.5M addresses barely
 // overlap, which would make per-IP aggregation meaningless.
-func PickCandidates(ctx context.Context, n int, ipv6 bool) ([]string, error) {
+func PickCandidates(ctx context.Context, n int, ipv6 bool, prefixes []string) ([]string, error) {
 	ranges := Ranges(ctx, ipv6)
 	if len(ranges) == 0 {
 		return nil, errNoRanges
 	}
 	rnd := rand.New(rand.NewSource(time.Now().UnixNano()))
-	ips := Sample(ranges, n, rnd)
-	if len(ips) == 0 {
+	seen := make(map[string]struct{}, n)
+	out := make([]string, 0, n)
+	add := func(ip string) {
+		if len(out) >= n {
+			return
+		}
+		if _, dup := seen[ip]; dup {
+			return
+		}
+		seen[ip] = struct{}{}
+		out = append(out, ip)
+	}
+	for _, ip := range sampleFromPrefixes(prefixes, prefixBudget(n, n), rnd) {
+		add(ip)
+	}
+	if rest := n - len(out); rest > 0 {
+		for _, ip := range Sample(ranges, rest, rnd) {
+			add(ip)
+		}
+	}
+	if len(out) == 0 {
 		return nil, errNoRanges
 	}
-	return ips, nil
+	sort.Strings(out)
+	return out, nil
+}
+
+// prefixBudget is how many candidates the static prefix list may claim.
+//
+// 清单是人手配的配置，不是系统学出来的记忆，所以不需要像「上轮结果」那样
+// 严格限流；但仍然设上限，避免一份超长清单把随机探索挤没。
+func prefixBudget(candidates, rest int) int {
+	budget := candidates / 4
+	if budget < 16 {
+		budget = 16
+	}
+	if budget > 80 {
+		budget = 80
+	}
+	if budget > rest {
+		budget = rest
+	}
+	return budget
+}
+
+// sampleFromPrefixes spreads n addresses over the given /24 blocks, at most
+// three per block. Three is enough to ride out one dead address and confirm
+// the prefix is alive, without wasting budget on the same block.
+func sampleFromPrefixes(raw []string, n int, rnd *rand.Rand) []string {
+	if n <= 0 || len(raw) == 0 {
+		return nil
+	}
+	parsed := make([]*net.IPNet, 0, len(raw))
+	seen := make(map[string]struct{}, len(raw))
+	for _, s := range raw {
+		p := ParsePrefix(s)
+		if p == nil {
+			continue
+		}
+		if _, dup := seen[p.String()]; dup {
+			continue
+		}
+		seen[p.String()] = struct{}{}
+		parsed = append(parsed, p)
+	}
+	if len(parsed) == 0 {
+		return nil
+	}
+	if len(parsed) > n {
+		parsed = parsed[:n]
+	}
+	per := n / len(parsed)
+	if per < 1 {
+		per = 1
+	}
+	if per > 3 {
+		per = 3
+	}
+	return SampleInPrefixes(parsed, per, rnd)
 }
 
 // buildCandidates merges last round's winners with a fresh sample. Re-testing
@@ -388,6 +467,11 @@ func buildCandidates(ranges []*net.IPNet, opts Options, rnd *rand.Rand) []string
 	}
 	for _, ip := range opts.Seeds {
 		add(ip)
+	}
+	if rest := opts.Candidates - len(out); rest > 0 && len(opts.Prefixes) > 0 {
+		for _, ip := range sampleFromPrefixes(opts.Prefixes, prefixBudget(opts.Candidates, rest), rnd) {
+			add(ip)
+		}
 	}
 	if rest := opts.Candidates - len(out); rest > 0 {
 		for _, ip := range Sample(ranges, rest, rnd) {

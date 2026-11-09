@@ -196,6 +196,10 @@ func (s *Service) StartScan(ctx context.Context, d *model.Domain, trigger string
 	}
 	opts.Seeds = s.Store.SeedIPs(d.ID, seeds)
 
+	// 静态候选前缀：运维按线路配好的一份清单，只读。扫描不会回写它，
+	// 测出来什么、选谁下发，仍然由当轮实测决定。
+	opts.Prefixes = s.Store.CandidatePrefixes(model.LineKey(d.RecordLine))
+
 	job, err := s.Store.CreateJob(d.ID, d.UserID, trigger, opts.Candidates)
 	if err != nil {
 		s.markRunning(d.ID, false)
@@ -254,8 +258,9 @@ func (s *Service) execute(job *model.ScanJob, d model.Domain, opts scanner.Optio
 	if len(opts.ColoAllow) > 0 {
 		policy += " · 机房 " + strings.Join(opts.ColoAllow, "/")
 	}
-	logx.Infof(d.UserID, d.ID, "%s 扫描开始 · 触发=%s · 候选=%d（复用 %d）· 并发=%d · 超时=%s · 采样=%d次 · 策略 %s",
-		name, triggerLabel(job.Trigger), opts.Candidates, len(opts.Seeds), opts.Concurrency, opts.Timeout, opts.Samples, policy)
+	logx.Infof(d.UserID, d.ID, "%s 扫描开始 · 触发=%s · 候选=%d（复用 IP %d + 前缀 %d）· 并发=%d · 超时=%s · 采样=%d次 · 策略 %s",
+		name, triggerLabel(job.Trigger), opts.Candidates, len(opts.Seeds), len(opts.Prefixes),
+		opts.Concurrency, opts.Timeout, opts.Samples, policy)
 
 	var lastWrite time.Time
 	lastStage := ""

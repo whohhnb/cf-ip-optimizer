@@ -141,12 +141,13 @@ func (s *Service) dispatchToProbes(ctx context.Context, d *model.Domain, job *mo
 
 	// 统一候选列表。取不到地址段时降级为各探针自行采样，聚合退化成
 	// 「能对上几个算几个」，但要明确告诉用户，不能装作正常
-	if ips, err := scanner.PickCandidates(ctx, opts.Candidates, opts.IPv6); err != nil {
+	if ips, err := scanner.PickCandidates(ctx, opts.Candidates, opts.IPv6, opts.Prefixes); err != nil {
 		logx.Warnf(d.UserID, d.ID, "%s 主控无法获取地址段，探针将各自采样：%v", d.FullName(), err)
 	} else {
 		opts.Fixed = ips
 		opts.Candidates = len(ips)
 		opts.Seeds = nil
+		opts.Prefixes = nil // 已经展开进 Fixed，避免探针侧重复采样
 	}
 
 	for _, p := range probes {

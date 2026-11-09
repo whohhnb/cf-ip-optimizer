@@ -182,6 +182,16 @@ CREATE TABLE IF NOT EXISTS settings (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+-- 候选前缀：运维手工导入的静态配置，每条线路一份。
+-- 注意：扫描流程只读这张表，代码里没有任何自动写入路径。
+CREATE TABLE IF NOT EXISTS candidate_prefixes (
+  line       TEXT NOT NULL,
+  prefix     TEXT NOT NULL,
+  note       TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (line, prefix)
+);
 `
 
 func (s *Store) migrate() error {
