@@ -356,6 +356,21 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  candidatePrefixes: () =>
+    http<{ lines: Record<string, string[]> }>("/api/candidate-prefixes"),
+
+  saveCandidatePrefixes: (line: string, prefixes: string[]) =>
+    http<{ line: string; prefixes: string[] }>("/api/candidate-prefixes", {
+      method: "PUT",
+      body: JSON.stringify({ line, prefixes }),
+    }),
+
+  deleteCandidatePrefix: (line: string, prefix: string) =>
+    http<{ line: string; prefix: string }>(
+      `/api/candidate-prefixes?line=${encodeURIComponent(line)}&prefix=${encodeURIComponent(prefix)}`,
+      { method: "DELETE" },
+    ),
+
   users: () => http<{ users: User[] }>("/api/users"),
 
   deleteUser: (id: number) =>

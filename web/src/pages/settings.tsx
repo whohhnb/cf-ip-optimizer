@@ -42,6 +42,8 @@ const numericFields: { key: string; label: string; hint: string; min: number; ma
   { key: "scan_speed_ok", label: "达标即停（个）", hint: "凑够这么多个达到速度下限的节点就停止测速，0 = 全部测完", min: 0, max: 60 },
 ]
 
+import { CandidatePrefixCard } from "@/components/candidate-prefix-card"
+
 export default function SettingsPage() {
   const { user } = useAuth()
   const [values, setValues] = useState<Record<string, string>>({})
@@ -266,6 +268,8 @@ export default function SettingsPage() {
               </p>
             </CardFooter>
           </Card>
+
+          <CandidatePrefixCard />
 
           <Card>
             <CardHeader>
