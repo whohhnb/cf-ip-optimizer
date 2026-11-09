@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
-import { Loader2, Save, Trash2 } from "lucide-react"
+import { ExternalLink, Loader2, Save, Trash2 } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -140,9 +140,23 @@ export function CandidatePrefixCard() {
                 ))}
               </div>
             ) : (
-              <p className="rounded-lg border border-dashed px-3 py-6 text-center text-sm text-muted-foreground">
-                「{line}」还没有配置前缀，这条线路目前是纯随机采样。
-              </p>
+              <div className="rounded-lg border border-dashed px-4 py-6 text-center">
+                <p className="text-sm text-muted-foreground">
+                  「{line}」还没有配置前缀，这条线路目前是纯随机采样。
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  想提高命中率？在对应线路的探针上跑一遍 /24 普查，把输出直接贴到下面。
+                </p>
+                <a
+                  href="https://github.com/whohhnb/cf-ip-optimizer/blob/main/scripts/prefix-survey.py"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex items-center gap-1 text-sm text-primary underline underline-offset-4 hover:no-underline"
+                >
+                  查看普查脚本
+                  <ExternalLink className="size-3.5" />
+                </a>
+              </div>
             )}
 
             <div className="grid gap-2">
@@ -152,7 +166,7 @@ export function CandidatePrefixCard() {
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 spellCheck={false}
-                placeholder={"172.64.53.0/24\n108.162.198.0/24"}
+                placeholder={"每行一个，例如：\n172.64.53.0/24"}
                 className="min-h-32 w-full resize-y rounded-lg border bg-transparent px-3 py-2 font-mono text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
               />
               <p className="text-xs text-muted-foreground">
